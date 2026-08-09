@@ -10,12 +10,14 @@ local function valid(element)
 end
 
 local function root(player)
-  return player.gui.screen[constants.gui.root]
+  return player.gui.relative[constants.gui.root] or player.gui.screen[constants.gui.root]
 end
 
 local function close(player)
-  local frame = root(player)
-  if frame then frame.destroy() end
+  local relative_frame = player.gui.relative[constants.gui.root]
+  if relative_frame then relative_frame.destroy() end
+  local screen_frame = player.gui.screen[constants.gui.root]
+  if screen_frame then screen_frame.destroy() end
   local player_state = state.get().players[player.index]
   if player_state then
     player_state.open_nest_id = nil
@@ -29,6 +31,15 @@ local function destination_index(record, options)
     if option.nest_id == record.destination_nest_id then return index end
   end
   return 1
+end
+
+local function update_name_suffix(player, record)
+  local frame = root(player)
+  local name_flow = frame and frame[constants.gui.name_flow]
+  local suffix_label = name_flow and name_flow[constants.gui.name_suffix_label]
+  if suffix_label then
+    suffix_label.caption = nests.duplicate_suffix_caption(record)
+  end
 end
 
 local function add_status(frame, nest_id)
@@ -59,21 +70,35 @@ function gui.open(player, record)
   local player_state = data.players[player.index] or {}
   data.players[player.index] = player_state
 
-  local frame = player.gui.screen.add{
+  local frame = player.gui.relative.add{
     type = "frame",
     name = constants.gui.root,
     caption = {"gui.biter-logistics-title"},
-    direction = "vertical"
+    direction = "vertical",
+    anchor = {
+      gui = defines.relative_gui_type.container_gui,
+      position = defines.relative_gui_position.right,
+      names = {constants.nest_entity}
+    }
   }
 
   player_state.open_nest_id = record.id
 
-  local name_flow = frame.add{type = "flow", direction = "horizontal"}
+  local name_flow = frame.add{
+    type = "flow",
+    name = constants.gui.name_flow,
+    direction = "horizontal"
+  }
   name_flow.add{type = "label", caption = {"gui.biter-logistics-name"}}
   name_flow.add{
     type = "textfield",
     name = constants.gui.name_field,
     text = record.display_name or ""
+  }
+  name_flow.add{
+    type = "label",
+    name = constants.gui.name_suffix_label,
+    caption = nests.duplicate_suffix_caption(record)
   }
 
   local options = nests.destination_options(record.id)
@@ -139,9 +164,11 @@ end
 
 function gui.on_text_changed(event)
   if not valid(event.element) or event.element.name ~= constants.gui.name_field then return end
+  local player = game.get_player(event.player_index)
   local player_state = state.get().players[event.player_index]
-  if not player_state or not player_state.open_nest_id then return end
+  if not player or not player_state or not player_state.open_nest_id then return end
   nests.set_display_name(player_state.open_nest_id, event.element.text)
+  update_name_suffix(player, nests.get(player_state.open_nest_id))
 end
 
 function gui.on_selection_state_changed(event)

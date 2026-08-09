@@ -111,11 +111,7 @@ function nests.configure_inventory(entity)
   local inventory = entity.get_inventory(defines.inventory.chest)
   if not inventory or not inventory.supports_filters() then return end
 
-  inventory.set_filter(constants.slots.carrier, {
-    name = constants.carrier_item,
-    quality = "normal",
-    comparator = ">="
-  })
+  inventory.set_filter(constants.slots.carrier, {name = constants.carrier_item})
 
   for slot = constants.slots.cargo_first, math.min(constants.slots.cargo_last, #inventory) do
     inventory.set_filter(slot, nil)
@@ -178,6 +174,50 @@ function nests.is_valid(record)
   return record and valid(record.entity)
 end
 
+local function scoped_records_for(record)
+  local data = state.get()
+  local scoped_records = {}
+  if not nests.is_valid(record) then return scoped_records end
+
+  for _, other in pairs(data.nests) do
+    if nests.is_valid(other)
+      and other.force_name == record.force_name
+      and other.surface_index == record.surface_index then
+      scoped_records[#scoped_records + 1] = other
+    end
+  end
+
+  table.sort(scoped_records, function(a, b)
+    local a_name = a.display_name or ""
+    local b_name = b.display_name or ""
+    if a_name ~= b_name then return a_name < b_name end
+    return a.id < b.id
+  end)
+
+  return scoped_records
+end
+
+local function duplicate_indices_for(scoped_records)
+  local name_counts = {}
+  for _, record in ipairs(scoped_records) do
+    if record.display_name and record.display_name ~= "" then
+      name_counts[record.display_name] = (name_counts[record.display_name] or 0) + 1
+    end
+  end
+
+  local duplicate_indices = {}
+  local name_indices = {}
+  for _, record in ipairs(scoped_records) do
+    if record.display_name and record.display_name ~= "" and name_counts[record.display_name] > 1 then
+      local duplicate_index = (name_indices[record.display_name] or 0) + 1
+      name_indices[record.display_name] = duplicate_index
+      duplicate_indices[record.id] = duplicate_index
+    end
+  end
+
+  return duplicate_indices
+end
+
 function nests.display_caption(record, duplicate_index)
   if record.display_name and record.display_name ~= "" then
     if duplicate_index then
@@ -188,6 +228,17 @@ function nests.display_caption(record, duplicate_index)
   return {"gui.biter-logistics-nest-option-unnamed", record.id}
 end
 
+function nests.duplicate_index(record)
+  local duplicate_indices = duplicate_indices_for(scoped_records_for(record))
+  return record and duplicate_indices[record.id] or nil
+end
+
+function nests.duplicate_suffix_caption(record)
+  local duplicate_index = nests.duplicate_index(record)
+  if not duplicate_index then return "" end
+  return {"gui.biter-logistics-name-duplicate-suffix", duplicate_index}
+end
+
 function nests.destination_options(source_id)
   local data = state.get()
   local source = data.nests[source_id]
@@ -196,38 +247,16 @@ function nests.destination_options(source_id)
   }
   if not nests.is_valid(source) then return options end
 
-  local candidates = {}
-  for id, record in pairs(data.nests) do
-    if id ~= source_id
-      and nests.is_valid(record)
-      and record.force_name == source.force_name
-      and record.surface_index == source.surface_index then
-      candidates[#candidates + 1] = record
-    end
-  end
+  local scoped_records = scoped_records_for(source)
+  local duplicate_indices = duplicate_indices_for(scoped_records)
 
-  table.sort(candidates, function(a, b)
-    local a_name = a.display_name or ""
-    local b_name = b.display_name or ""
-    if a_name ~= b_name then return a_name < b_name end
-    return a.id < b.id
-  end)
-
-  local name_counts = {}
-  for _, record in ipairs(candidates) do
-    if record.display_name and record.display_name ~= "" then
-      name_counts[record.display_name] = (name_counts[record.display_name] or 0) + 1
+  for _, record in ipairs(scoped_records) do
+    if record.id ~= source_id then
+      options[#options + 1] = {
+        nest_id = record.id,
+        caption = nests.display_caption(record, duplicate_indices[record.id])
+      }
     end
-  end
-
-  local name_indices = {}
-  for _, record in ipairs(candidates) do
-    local duplicate_index = nil
-    if record.display_name and record.display_name ~= "" and name_counts[record.display_name] > 1 then
-      duplicate_index = (name_indices[record.display_name] or 0) + 1
-      name_indices[record.display_name] = duplicate_index
-    end
-    options[#options + 1] = {nest_id = record.id, caption = nests.display_caption(record, duplicate_index)}
   end
 
   return options

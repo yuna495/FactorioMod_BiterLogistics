@@ -40,7 +40,9 @@ constants.command = {
 
 constants.gui = {
   root = "biter_logistics_nest_gui",
+  name_flow = "biter_logistics_name_flow",
   name_field = "biter_logistics_nest_name",
+  name_suffix_label = "biter_logistics_name_suffix",
   destination_dropdown = "biter_logistics_destination"
 }
 
