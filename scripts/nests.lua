@@ -31,6 +31,81 @@ local function dequeue(data, id)
   data.nest_queued[id] = nil
 end
 
+local function get_chest_inventory(record)
+  if not record or not valid(record.entity) then return nil end
+  return record.entity.get_inventory(defines.inventory.chest)
+end
+
+local function cargo_slot_last(inventory)
+  return math.min(constants.slots.cargo_last, #inventory)
+end
+
+local function for_each_cargo_slot(record, callback)
+  local inventory = get_chest_inventory(record)
+  if not inventory then return nil end
+
+  for slot = constants.slots.cargo_first, cargo_slot_last(inventory) do
+    local stack = inventory[slot]
+    if stack and stack.valid then
+      local result = callback(stack, slot, inventory)
+      if result ~= nil then return result end
+    end
+  end
+
+  return nil
+end
+
+local function stack_quality_name(stack)
+  return stack.quality and stack.quality.name or "normal"
+end
+
+local function cargo_quality_name(cargo)
+  return cargo.quality or "normal"
+end
+
+local function cargo_stack_definition(name, count, quality)
+  local stack = {name = name, count = count}
+  if quality and quality ~= "normal" then
+    stack.quality = quality
+  end
+  return stack
+end
+
+local function stack_matches_cargo(stack, cargo)
+  return stack.valid_for_read
+    and stack.name == cargo.name
+    and stack_quality_name(stack) == cargo_quality_name(cargo)
+end
+
+local function item_stack_size(name)
+  local prototype = prototypes.item[name]
+  return prototype and prototype.stack_size or 0
+end
+
+local function insert_into_cargo_slot(stack, cargo)
+  if not stack or not stack.valid or not cargo or cargo.count <= 0 then return 0 end
+
+  local inserted = 0
+  if stack.valid_for_read then
+    if not stack_matches_cargo(stack, cargo) then return 0 end
+    inserted = math.min(stack.prototype.stack_size - stack.count, cargo.count)
+    if inserted <= 0 then return 0 end
+    stack.count = stack.count + inserted
+  else
+    inserted = math.min(item_stack_size(cargo.name), cargo.count)
+    if inserted <= 0 then return 0 end
+    if not stack.set_stack(cargo_stack_definition(cargo.name, inserted, cargo_quality_name(cargo))) then
+      return 0
+    end
+  end
+
+  cargo.count = cargo.count - inserted
+  if cargo.count <= 0 then
+    cargo.count = 0
+  end
+  return inserted
+end
+
 function nests.configure_inventory(entity)
   if not valid(entity) then return end
   local inventory = entity.get_inventory(defines.inventory.chest)
@@ -103,9 +178,12 @@ function nests.is_valid(record)
   return record and valid(record.entity)
 end
 
-function nests.display_caption(record)
+function nests.display_caption(record, duplicate_index)
   if record.display_name and record.display_name ~= "" then
-    return {"gui.biter-logistics-nest-option-named", record.display_name, record.id}
+    if duplicate_index then
+      return {"gui.biter-logistics-nest-option-duplicate", record.display_name, duplicate_index}
+    end
+    return {"gui.biter-logistics-nest-option-named", record.display_name}
   end
   return {"gui.biter-logistics-nest-option-unnamed", record.id}
 end
@@ -135,8 +213,21 @@ function nests.destination_options(source_id)
     return a.id < b.id
   end)
 
+  local name_counts = {}
   for _, record in ipairs(candidates) do
-    options[#options + 1] = {nest_id = record.id, caption = nests.display_caption(record)}
+    if record.display_name and record.display_name ~= "" then
+      name_counts[record.display_name] = (name_counts[record.display_name] or 0) + 1
+    end
+  end
+
+  local name_indices = {}
+  for _, record in ipairs(candidates) do
+    local duplicate_index = nil
+    if record.display_name and record.display_name ~= "" and name_counts[record.display_name] > 1 then
+      duplicate_index = (name_indices[record.display_name] or 0) + 1
+      name_indices[record.display_name] = duplicate_index
+    end
+    options[#options + 1] = {nest_id = record.id, caption = nests.display_caption(record, duplicate_index)}
   end
 
   return options
@@ -172,68 +263,50 @@ end
 
 function nests.count_carrier_items(record)
   if not nests.is_valid(record) then return 0 end
-  local inventory = record.entity.get_inventory(defines.inventory.chest)
+  local inventory = get_chest_inventory(record)
   if not inventory then return 0 end
   local stack = inventory[constants.slots.carrier]
-  if stack.valid_for_read and stack.name == constants.carrier_item then
+  if stack and stack.valid and stack.valid_for_read and stack.name == constants.carrier_item then
     return stack.count
   end
   return 0
 end
 
 function nests.has_cargo(record)
-  if not nests.is_valid(record) then return false end
-  local inventory = record.entity.get_inventory(defines.inventory.chest)
-  if not inventory then return false end
-
-  for slot = constants.slots.cargo_first, math.min(constants.slots.cargo_last, #inventory) do
-    local stack = inventory[slot]
+  return for_each_cargo_slot(record, function(stack)
     if stack.valid_for_read and stack.name ~= constants.carrier_item then
       return true
     end
-  end
-
-  return false
+  end) or false
 end
 
 function nests.take_one_stack(record)
-  if not nests.is_valid(record) then return nil end
-  local inventory = record.entity.get_inventory(defines.inventory.chest)
-  if not inventory then return nil end
-
-  for slot = constants.slots.cargo_first, math.min(constants.slots.cargo_last, #inventory) do
-    local stack = inventory[slot]
+  return for_each_cargo_slot(record, function(stack)
     if stack.valid_for_read and stack.name ~= constants.carrier_item then
       local name = stack.name
-      local quality = stack.quality and stack.quality.name or "normal"
+      local quality = stack_quality_name(stack)
       local count = math.min(stack.count, stack.prototype.stack_size)
-      local request = {name = name, count = count, quality = quality}
-      local removed = inventory.remove(request)
-      if removed > 0 then
-        return {name = name, count = removed, quality = quality}
+      if count <= 0 then return nil end
+      if count >= stack.count then
+        stack.clear()
+      else
+        stack.count = stack.count - count
       end
+      return {name = name, count = count, quality = quality}
     end
-  end
-
-  return nil
+  end)
 end
 
 function nests.insert_cargo(record, cargo)
-  if not cargo or cargo.count <= 0 or not nests.is_valid(record) then return 0 end
-  local inventory = record.entity.get_inventory(defines.inventory.chest)
-  if not inventory then return 0 end
+  if not cargo or cargo.count <= 0 then return 0 end
 
-  local stack = {name = cargo.name, count = cargo.count}
-  if cargo.quality and cargo.quality ~= "normal" then
-    stack.quality = cargo.quality
-  end
+  local inserted_total = 0
+  for_each_cargo_slot(record, function(stack)
+    inserted_total = inserted_total + insert_into_cargo_slot(stack, cargo)
+    if cargo.count <= 0 then return true end
+  end)
 
-  local inserted = inventory.insert(stack)
-  cargo.count = cargo.count - inserted
-  if cargo.count <= 0 then
-    cargo.count = 0
-  end
-  return inserted
+  return inserted_total
 end
 
 function nests.remove(id)
@@ -260,13 +333,13 @@ end
 
 local function process_carrier_slot(record, spawn_callback)
   if not nests.is_valid(record) then return end
-  local inventory = record.entity.get_inventory(defines.inventory.chest)
+  local inventory = get_chest_inventory(record)
   if not inventory then return end
 
   local stack = inventory[constants.slots.carrier]
-  if not stack.valid_for_read or stack.name ~= constants.carrier_item then return end
+  if not stack or not stack.valid or not stack.valid_for_read or stack.name ~= constants.carrier_item then return end
 
-  local quality = stack.quality and stack.quality.name or "normal"
+  local quality = stack_quality_name(stack)
   if spawn_callback(record, quality) then
     if stack.count > 1 then
       stack.count = stack.count - 1

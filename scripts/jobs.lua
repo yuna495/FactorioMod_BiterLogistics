@@ -15,6 +15,8 @@ function jobs.create(source_nest_id, destination_nest_id, carrier_id, home_nest_
     home_nest_id = home_nest_id,
     generator = generator or "fixed-route",
     state = "created",
+    retry_count = 0,
+    failure_reason = false,
     created_tick = game.tick,
     updated_tick = game.tick
   }
@@ -45,11 +47,21 @@ function jobs.set_state(id, job_state)
   job.updated_tick = game.tick
 end
 
+function jobs.set_failure(id, reason)
+  local job = jobs.get(id)
+  if not job then return end
+  job.failure_reason = reason or false
+  job.updated_tick = game.tick
+end
+
 function jobs.complete(id, result)
   local data = state.get()
   local job = data.jobs[id]
   if not job then return end
   job.state = result or "complete"
+  if result and result ~= "complete" then
+    job.failure_reason = result
+  end
   job.updated_tick = game.tick
   data.jobs[id] = nil
 end

@@ -93,11 +93,6 @@ function gui.open(player, record)
   }
 
   add_status(frame, record.id)
-  frame.add{
-    type = "button",
-    name = constants.gui.refresh_button,
-    caption = {"gui.biter-logistics-refresh"}
-  }
 end
 
 function gui.refresh(player)
@@ -159,12 +154,6 @@ function gui.on_selection_state_changed(event)
   if not option then return end
   nests.set_destination(player_state.open_nest_id, option.nest_id)
   gui.refresh(player)
-end
-
-function gui.on_click(event)
-  if not valid(event.element) or event.element.name ~= constants.gui.refresh_button then return end
-  local player = game.get_player(event.player_index)
-  if player then gui.refresh(player) end
 end
 
 return gui

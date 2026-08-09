@@ -29,7 +29,7 @@ function cleanup.on_removed(event)
     local record = nests.get_by_entity(entity)
     if not record then return end
     local position = valid(entity) and entity.position or record.position
-    carriers.handle_nest_removed(record.id, position)
+    carriers.handle_nest_removed(record.id, position, {player_index = event.player_index})
     gui.close_nest(record.id)
     nests.remove(record.id)
     return

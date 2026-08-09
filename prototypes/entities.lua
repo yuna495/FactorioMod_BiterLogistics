@@ -56,6 +56,7 @@ carrier.localised_name = {"entity-name.biter-logistics-carrier-biter-unit"}
 carrier.localised_description = {"entity-description.biter-logistics-carrier-biter-unit"}
 carrier.flags = {"placeable-player", "placeable-off-grid", "not-repairable", "breaths-air"}
 carrier.autoplace = nil
+carrier.minable = {mining_time = 0.2, result = constants.carrier_item}
 carrier.absorptions_to_join_attack = nil
 carrier.has_belt_immunity = true
 carrier.min_pursue_time = 0

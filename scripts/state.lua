@@ -5,6 +5,20 @@ local function ensure_table(parent, key)
   return parent[key]
 end
 
+local function migrate(data)
+  if data.schema_version < 2 then
+    for _, job in pairs(data.jobs or {}) do
+      if job.retry_count == nil then
+        job.retry_count = 0
+      end
+      if job.failure_reason == nil then
+        job.failure_reason = false
+      end
+    end
+    data.schema_version = 2
+  end
+end
+
 function state.get()
   storage.biter_logistics = storage.biter_logistics or {}
   local data = storage.biter_logistics
@@ -30,6 +44,8 @@ function state.get()
 
   data.nest_cursor = data.nest_cursor or 0
   data.carrier_cursor = data.carrier_cursor or 0
+
+  migrate(data)
 
   return data
 end

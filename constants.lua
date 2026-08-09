@@ -20,6 +20,8 @@ constants.ticks = {
   carriers_per_update = 32,
   idle_delay = 60,
   retry_delay = 120,
+  destination_space_check_interval = 120,
+  destination_space_check_jitter = 60,
   command_check_interval = 60,
   command_timeout = 60 * 60
 }
@@ -39,8 +41,7 @@ constants.command = {
 constants.gui = {
   root = "biter_logistics_nest_gui",
   name_field = "biter_logistics_nest_name",
-  destination_dropdown = "biter_logistics_destination",
-  refresh_button = "biter_logistics_refresh"
+  destination_dropdown = "biter_logistics_destination"
 }
 
 constants.commands = {

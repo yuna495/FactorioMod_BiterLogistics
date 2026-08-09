@@ -65,17 +65,28 @@ local function spill_cargo(record)
   record.cargo = nil
 end
 
-local function spill_carrier_item(record, position)
-  local surface = valid(record.entity) and record.entity.surface or game.get_surface(record.surface_index)
-  if not surface then return end
-
-  local spill_position = position or record.last_position or (valid(record.entity) and record.entity.position)
-  if not spill_position then return end
-
+local function spill_carrier_item(record, options)
+  options = options or {}
   local stack = {name = constants.carrier_item, count = 1}
   if record.quality and record.quality ~= "normal" then
     stack.quality = record.quality
   end
+
+  if options.player_index then
+    local player = game.get_player(options.player_index)
+    local inventory = player and player.get_main_inventory()
+    if inventory then
+      local inserted = inventory.insert(stack)
+      if inserted >= stack.count then return end
+      stack.count = stack.count - inserted
+    end
+  end
+
+  local surface = valid(record.entity) and record.entity.surface or game.get_surface(record.surface_index)
+  if not surface then return end
+
+  local spill_position = options.item_position or record.last_position or (valid(record.entity) and record.entity.position)
+  if not spill_position then return end
 
   local spill = {
     position = spill_position,
@@ -281,6 +292,21 @@ local function return_home(record)
   end
 end
 
+local function destination_space_delay(record)
+  local jitter = constants.ticks.destination_space_check_jitter or 0
+  if jitter <= 0 then return constants.ticks.destination_space_check_interval end
+  return constants.ticks.destination_space_check_interval + (record.id % jitter)
+end
+
+local function wait_for_destination_space(record)
+  jobs.set_state(record.job_id, "waiting_for_destination_space")
+  record.state = "waiting_for_destination_space"
+  record.command_target_nest_id = nil
+  record.command_position = nil
+  record.command_failed = nil
+  record.next_update_tick = game.tick + destination_space_delay(record)
+end
+
 local function complete_command_success(record)
   record.command_failed = nil
   record.command_target_nest_id = nil
@@ -427,12 +453,60 @@ local function update_record(record)
   if record.state == "unloading" then
     local job = jobs.get(record.job_id)
     local destination = job and nests.get(job.destination_nest_id)
-    if record.cargo and nests.is_valid(destination) then
-      nests.insert_cargo(destination, record.cargo)
-      if record.cargo.count <= 0 then
-        record.cargo = nil
-      end
+    if not record.cargo or record.cargo.count <= 0 then
+      record.cargo = nil
+      return_home(record)
+      return
     end
+
+    if not nests.is_valid(destination) then
+      jobs.set_failure(record.job_id, "destination_invalid")
+      return_home(record)
+      return
+    end
+
+    nests.insert_cargo(destination, record.cargo)
+    if record.cargo.count > 0 then
+      wait_for_destination_space(record)
+      return
+    end
+
+    record.cargo = nil
+    return_home(record)
+    return
+  end
+
+  if record.state == "waiting_for_destination_space" then
+    local job = jobs.get(record.job_id)
+    local destination = job and nests.get(job.destination_nest_id)
+
+    if not record.cargo or record.cargo.count <= 0 then
+      record.cargo = nil
+      return_home(record)
+      return
+    end
+
+    if not job or not nests.is_valid(destination) then
+      jobs.set_failure(record.job_id, "destination_invalid")
+      return_home(record)
+      return
+    end
+
+    if not is_near(record, destination) then
+      jobs.set_state(record.job_id, "to_destination")
+      if not issue_command(record, destination.id, "to_destination") then
+        wait_for_destination_space(record)
+      end
+      return
+    end
+
+    nests.insert_cargo(destination, record.cargo)
+    if record.cargo.count > 0 then
+      wait_for_destination_space(record)
+      return
+    end
+
+    record.cargo = nil
     return_home(record)
     return
   end
@@ -533,7 +607,7 @@ function carriers.remove(id, options)
     spill_cargo(record)
   end
   if options.return_carrier_item then
-    spill_carrier_item(record, options.item_position)
+    spill_carrier_item(record, options)
   end
 
   if record.home_nest_id then
@@ -567,7 +641,8 @@ function carriers.remove_by_unit_number(unit_number, options)
   if id then carriers.remove(id, options) end
 end
 
-function carriers.handle_nest_removed(nest_id, position)
+function carriers.handle_nest_removed(nest_id, position, options)
+  options = options or {}
   local data = state.get()
   local carrier_ids = {}
   for id in pairs(data.carriers) do
@@ -581,6 +656,7 @@ function carriers.handle_nest_removed(nest_id, position)
         spill_cargo = true,
         return_carrier_item = true,
         item_position = position,
+        player_index = options.player_index,
         destroy_entity = true
       })
     elseif record and record.job_id then

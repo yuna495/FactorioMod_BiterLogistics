@@ -44,7 +44,6 @@ script.on_event(defines.events.on_gui_opened, gui.on_opened)
 script.on_event(defines.events.on_gui_closed, gui.on_closed)
 script.on_event(defines.events.on_gui_text_changed, gui.on_text_changed)
 script.on_event(defines.events.on_gui_selection_state_changed, gui.on_selection_state_changed)
-script.on_event(defines.events.on_gui_click, gui.on_click)
 
 script.on_nth_tick(constants.ticks.nest_update_interval, function()
   nests.process_batch(carriers.spawn_from_nest, carriers.wake_for_nest)
