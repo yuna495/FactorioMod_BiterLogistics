@@ -17,6 +17,17 @@ local function migrate(data)
     end
     data.schema_version = 2
   end
+
+  if data.schema_version < 3 then
+    for _, record in pairs(data.carriers or {}) do
+      record.cargo_slots = record.cargo_slots or {}
+      if record.cargo and record.cargo.name and record.cargo.count and record.cargo.count > 0 then
+        record.cargo_slots[#record.cargo_slots + 1] = record.cargo
+      end
+      record.cargo = nil
+    end
+    data.schema_version = 3
+  end
 end
 
 function state.get()
@@ -41,6 +52,7 @@ function state.get()
   ensure_table(data, "jobs")
   ensure_table(data, "players")
   ensure_table(data, "destroy_registrations")
+  ensure_table(data, "force_effects")
 
   data.nest_cursor = data.nest_cursor or 0
   data.carrier_cursor = data.carrier_cursor or 0

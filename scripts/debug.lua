@@ -2,6 +2,7 @@ local constants = require("constants")
 local state = require("scripts.state")
 local nests = require("scripts.nests")
 local jobs = require("scripts.jobs")
+local research = require("scripts.research")
 
 local debug = {}
 
@@ -18,13 +19,28 @@ local function position_text(position)
   return string.format("%.1f,%.1f", position.x, position.y)
 end
 
-local function cargo_text(cargo)
-  local count = cargo and cargo.count or 0
-  if not cargo or not cargo.name or count <= 0 then return "-" end
+local function cargo_stack_text(cargo)
+  if not cargo or not cargo.name or not cargo.count or cargo.count <= 0 then return nil end
   if cargo.quality and cargo.quality ~= "normal" then
-    return cargo.name .. "/" .. cargo.quality .. " x" .. count
+    return cargo.name .. "/" .. cargo.quality .. " x" .. cargo.count
   end
-  return cargo.name .. " x" .. count
+  return cargo.name .. " x" .. cargo.count
+end
+
+local function cargo_text(record)
+  local slots = {}
+  if record.cargo_slots then
+    for _, cargo in ipairs(record.cargo_slots) do
+      local text = cargo_stack_text(cargo)
+      if text then slots[#slots + 1] = text end
+    end
+  end
+
+  local legacy_text = cargo_stack_text(record.cargo)
+  if legacy_text then slots[#slots + 1] = legacy_text end
+
+  if #slots == 0 then return "-" end
+  return table.concat(slots, ", ")
 end
 
 local function output_for(command)
@@ -41,7 +57,19 @@ end
 function debug.print_status(command)
   local data = state.get()
   local print, player = output_for(command)
+  research.rebuild_all(false)
+
   print({"debug.biter-logistics-header", count_pairs(data.nests), count_pairs(data.carriers), game.tick})
+  if player then
+    local effects = research.effects_for_force_name(player.force.name)
+    print({
+      "debug.biter-logistics-force-effects",
+      player.force.name,
+      effects.carrier_capacity_stacks,
+      string.format("%.2f", effects.carrier_speed_multiplier),
+      effects.nest_cargo_slots
+    })
+  end
 
   for id, record in pairs(data.nests) do
     if nests.is_valid(record)
@@ -71,7 +99,7 @@ function debug.print_status(command)
         record.state or "-",
         record.home_nest_id or "-",
         job and (job.id .. "/" .. job.state) or "-",
-        cargo_text(record.cargo),
+        cargo_text(record),
         tostring(has_command),
         record.next_update_tick or "-",
         position_text(entity.position),

@@ -1,5 +1,6 @@
 local constants = require("constants")
 local state = require("scripts.state")
+local research = require("scripts.research")
 
 local nests = {}
 
@@ -36,15 +37,21 @@ local function get_chest_inventory(record)
   return record.entity.get_inventory(defines.inventory.chest)
 end
 
-local function cargo_slot_last(inventory)
-  return math.min(constants.slots.cargo_last, #inventory)
+local function cargo_slot_last(record, inventory)
+  local force_name = record.force_name
+  if not force_name and record.entity and record.entity.valid then
+    force_name = record.entity.force.name
+  end
+  local cargo_count = research.nest_cargo_slots_for_force_name(force_name)
+  local configured_last = constants.slots.cargo_first + cargo_count - 1
+  return math.min(configured_last, #inventory)
 end
 
 local function for_each_cargo_slot(record, callback)
   local inventory = get_chest_inventory(record)
   if not inventory then return nil end
 
-  for slot = constants.slots.cargo_first, cargo_slot_last(inventory) do
+  for slot = constants.slots.cargo_first, cargo_slot_last(record, inventory) do
     local stack = inventory[slot]
     if stack and stack.valid then
       local result = callback(stack, slot, inventory)
@@ -108,12 +115,14 @@ end
 
 function nests.configure_inventory(entity)
   if not valid(entity) then return end
+  research.apply_to_nest_entity(entity)
+
   local inventory = entity.get_inventory(defines.inventory.chest)
   if not inventory or not inventory.supports_filters() then return end
 
   inventory.set_filter(constants.slots.carrier, {name = constants.carrier_item})
 
-  for slot = constants.slots.cargo_first, math.min(constants.slots.cargo_last, #inventory) do
+  for slot = constants.slots.cargo_first, #inventory do
     inventory.set_filter(slot, nil)
   end
 end
@@ -307,6 +316,14 @@ function nests.count_carrier_items(record)
     return stack.count
   end
   return 0
+end
+
+function nests.cargo_slot_count(record)
+  local force_name = record and record.force_name
+  if not force_name and record and record.entity and record.entity.valid then
+    force_name = record.entity.force.name
+  end
+  return research.nest_cargo_slots_for_force_name(force_name)
 end
 
 function nests.has_cargo(record)

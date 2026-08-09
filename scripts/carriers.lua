@@ -2,6 +2,7 @@ local constants = require("constants")
 local state = require("scripts.state")
 local nests = require("scripts.nests")
 local jobs = require("scripts.jobs")
+local research = require("scripts.research")
 
 local carriers = {}
 
@@ -41,8 +42,71 @@ local function stack_definition(cargo)
   return stack
 end
 
+local function normalise_cargo_slots(record)
+  record.cargo_slots = record.cargo_slots or {}
+  if record.cargo and record.cargo.name and record.cargo.count and record.cargo.count > 0 then
+    record.cargo_slots[#record.cargo_slots + 1] = record.cargo
+  end
+  record.cargo = nil
+
+  local next_slot = 1
+  for index = 1, #record.cargo_slots do
+    local cargo = record.cargo_slots[index]
+    if cargo and cargo.name and cargo.count and cargo.count > 0 then
+      record.cargo_slots[next_slot] = cargo
+      next_slot = next_slot + 1
+    end
+  end
+  for index = next_slot, #record.cargo_slots do
+    record.cargo_slots[index] = nil
+  end
+
+  return record.cargo_slots
+end
+
+local function has_carried_cargo(record)
+  for _, cargo in ipairs(normalise_cargo_slots(record)) do
+    if cargo.count > 0 then return true end
+  end
+  return false
+end
+
+local function carrier_capacity(record)
+  local force_name = record.force_name
+  if not force_name and valid(record.entity) then
+    force_name = record.entity.force.name
+  end
+  return math.max(1, research.carrier_capacity_for_force_name(force_name))
+end
+
+local function load_cargo_from_source(record, source)
+  local cargo_slots = normalise_cargo_slots(record)
+  local capacity = carrier_capacity(record)
+  local loaded = false
+
+  while #cargo_slots < capacity do
+    local cargo = nests.take_one_stack(source)
+    if not cargo then break end
+    cargo_slots[#cargo_slots + 1] = cargo
+    loaded = true
+  end
+
+  return loaded
+end
+
+local function insert_all_cargo(record, nest_record)
+  local inserted = 0
+  for _, cargo in ipairs(normalise_cargo_slots(record)) do
+    if cargo.count > 0 then
+      inserted = inserted + nests.insert_cargo(nest_record, cargo)
+    end
+  end
+  normalise_cargo_slots(record)
+  return inserted
+end
+
 local function spill_cargo(record)
-  if not record.cargo or record.cargo.count <= 0 then return end
+  if not has_carried_cargo(record) then return end
 
   local surface = valid(record.entity) and record.entity.surface or game.get_surface(record.surface_index)
   if not surface then return end
@@ -50,18 +114,21 @@ local function spill_cargo(record)
   local position = valid(record.entity) and record.entity.position or record.last_position
   if not position then return end
 
-  local spill = {
-    position = position,
-    stack = stack_definition(record.cargo),
-    allow_belts = false
-  }
-  if valid(record.entity) then
-    spill.force = record.entity.force
-  elseif record.force_name and game.forces[record.force_name] then
-    spill.force = game.forces[record.force_name]
+  for _, cargo in ipairs(normalise_cargo_slots(record)) do
+    local spill = {
+      position = position,
+      stack = stack_definition(cargo),
+      allow_belts = false
+    }
+    if valid(record.entity) then
+      spill.force = record.entity.force
+    elseif record.force_name and game.forces[record.force_name] then
+      spill.force = game.forces[record.force_name]
+    end
+    surface.spill_item_stack(spill)
   end
 
-  surface.spill_item_stack(spill)
+  record.cargo_slots = {}
   record.cargo = nil
 end
 
@@ -140,6 +207,8 @@ function carriers.register(entity, home_nest_id, quality)
   record.surface_index = entity.surface_index
   record.last_position = copy_position(entity.position)
   record.next_update_tick = game.tick
+  normalise_cargo_slots(record)
+  research.apply_to_carrier(record)
 
   if record.home_nest_id then
     local home = nests.get(record.home_nest_id)
@@ -380,7 +449,7 @@ local function update_record(record)
   end
 
   if record.state == "idle" then
-    if record.cargo and record.cargo.count > 0 then
+    if has_carried_cargo(record) then
       local home = nests.get(record.home_nest_id)
       if not nests.is_valid(home) then
         carriers.remove(record.id, {spill_cargo = true, destroy_entity = true})
@@ -443,11 +512,9 @@ local function update_record(record)
       return
     end
 
-    if not record.cargo or record.cargo.count <= 0 then
-      record.cargo = nests.take_one_stack(source)
-    end
+    load_cargo_from_source(record, source)
 
-    if not record.cargo then
+    if not has_carried_cargo(record) then
       set_idle(record, constants.ticks.idle_delay)
       return
     end
@@ -462,8 +529,7 @@ local function update_record(record)
   if record.state == "unloading" then
     local job = jobs.get(record.job_id)
     local destination = job and nests.get(job.destination_nest_id)
-    if not record.cargo or record.cargo.count <= 0 then
-      record.cargo = nil
+    if not has_carried_cargo(record) then
       return_home(record)
       return
     end
@@ -474,13 +540,12 @@ local function update_record(record)
       return
     end
 
-    nests.insert_cargo(destination, record.cargo)
-    if record.cargo.count > 0 then
+    insert_all_cargo(record, destination)
+    if has_carried_cargo(record) then
       wait_for_destination_space(record)
       return
     end
 
-    record.cargo = nil
     return_home(record)
     return
   end
@@ -489,8 +554,7 @@ local function update_record(record)
     local job = jobs.get(record.job_id)
     local destination = job and nests.get(job.destination_nest_id)
 
-    if not record.cargo or record.cargo.count <= 0 then
-      record.cargo = nil
+    if not has_carried_cargo(record) then
       return_home(record)
       return
     end
@@ -509,13 +573,12 @@ local function update_record(record)
       return
     end
 
-    nests.insert_cargo(destination, record.cargo)
-    if record.cargo.count > 0 then
+    insert_all_cargo(record, destination)
+    if has_carried_cargo(record) then
       wait_for_destination_space(record)
       return
     end
 
-    record.cargo = nil
     return_home(record)
     return
   end
@@ -534,15 +597,14 @@ local function update_record(record)
       return
     end
 
-    if record.cargo and record.cargo.count > 0 then
-      nests.insert_cargo(home, record.cargo)
-      if record.cargo.count > 0 then
+    if has_carried_cargo(record) then
+      insert_all_cargo(record, home)
+      if has_carried_cargo(record) then
         jobs.set_state(record.job_id, "waiting_for_home_space")
         record.state = "waiting_with_cargo"
         record.next_update_tick = game.tick + constants.ticks.idle_delay
         return
       end
-      record.cargo = nil
     end
 
     set_idle(record, 0)
@@ -672,7 +734,7 @@ function carriers.handle_nest_removed(nest_id, position, options)
       local job = jobs.get(record.job_id)
       if job and (job.source_nest_id == nest_id or job.destination_nest_id == nest_id or job.home_nest_id == nest_id) then
         clear_job(record, "nest_removed")
-        if record.cargo and record.home_nest_id and nests.is_valid(nests.get(record.home_nest_id)) then
+        if has_carried_cargo(record) and record.home_nest_id and nests.is_valid(nests.get(record.home_nest_id)) then
           issue_command(record, record.home_nest_id, "returning")
         else
           set_idle(record, constants.ticks.idle_delay)
@@ -694,6 +756,8 @@ function carriers.validate()
     if record and valid(record.entity) then
       data.carrier_by_unit_number[record.unit_number] = id
       record.next_update_tick = game.tick
+      normalise_cargo_slots(record)
+      research.apply_to_carrier(record)
       enqueue(data, id)
     elseif record then
       carriers.remove(id, {spill_cargo = true})

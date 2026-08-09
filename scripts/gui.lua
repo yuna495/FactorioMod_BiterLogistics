@@ -47,7 +47,7 @@ local function add_status(frame, nest_id)
   local active_count = carriers.active_for_nest(nest_id)
 
   frame.add{type = "label", caption = {"gui.biter-logistics-carrier-slot"}}
-  frame.add{type = "label", caption = {"gui.biter-logistics-cargo-slots"}}
+  frame.add{type = "label", caption = {"gui.biter-logistics-cargo-slots", nests.cargo_slot_count(nests.get(nest_id))}}
 
   local carrier_flow = frame.add{type = "flow", direction = "horizontal"}
   carrier_flow.add{type = "label", caption = {"gui.biter-logistics-carriers"}}

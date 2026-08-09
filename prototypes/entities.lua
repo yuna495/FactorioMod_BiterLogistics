@@ -10,7 +10,7 @@ nest.icon = "__base__/graphics/icons/biter-spawner.png"
 nest.minable = {mining_time = 0.3, result = constants.nest_item}
 nest.collision_box = {{-1.2, -1.2}, {1.2, 1.2}}
 nest.selection_box = {{-1.5, -1.5}, {1.5, 1.5}}
-nest.inventory_size = constants.slots.total
+nest.inventory_size = constants.slots.max_total
 nest.inventory_type = "with_filters_and_bar"
 nest.quality_affects_inventory_size = false
 nest.corpse = "biter-spawner-corpse"

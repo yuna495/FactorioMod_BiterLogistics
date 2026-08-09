@@ -4,7 +4,7 @@ data:extend({
   {
     type = "recipe",
     name = constants.nest_item,
-    enabled = true,
+    enabled = false,
     energy_required = 4,
     ingredients = {
       {type = "item", name = "stone-brick", amount = 10},
@@ -16,7 +16,7 @@ data:extend({
   {
     type = "recipe",
     name = constants.carrier_item,
-    enabled = true,
+    enabled = false,
     energy_required = 2,
     ingredients = {
       {type = "item", name = "raw-fish", amount = 1},

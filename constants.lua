@@ -10,7 +10,26 @@ constants.slots = {
   cargo_first = 2,
   cargo_last = 11,
   cargo_count = 10,
-  total = 11
+  max_cargo_count = 40,
+  max_cargo_last = 41,
+  total = 11,
+  max_total = 41
+}
+
+constants.research = {
+  base = "biter-logistics",
+  carrier_capacity_prefix = "biter-logistics-carrier-capacity-",
+  carrier_capacity_infinite = "biter-logistics-carrier-capacity-4",
+  carrier_speed_prefix = "biter-logistics-carrier-speed-",
+  carrier_speed_infinite = "biter-logistics-carrier-speed-4",
+  nest_capacity_prefix = "biter-logistics-nest-capacity-",
+  default_carrier_capacity_stacks = 1,
+  default_carrier_speed_multiplier = 1,
+  default_nest_cargo_slots = 10,
+  base_carrier_speed = 0.2,
+  carrier_speed_finite_bonus = 0.2,
+  carrier_speed_infinite_bonus = 0.1,
+  max_carrier_speed_multiplier = 3
 }
 
 constants.ticks = {
