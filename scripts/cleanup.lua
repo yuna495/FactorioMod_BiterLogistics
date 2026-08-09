@@ -1,0 +1,69 @@
+local constants = require("constants")
+local state = require("scripts.state")
+local nests = require("scripts.nests")
+local carriers = require("scripts.carriers")
+local gui = require("scripts.gui")
+
+local cleanup = {}
+
+local function valid(entity)
+  return entity and entity.valid
+end
+
+local function event_entity(event)
+  return event.created_entity or event.entity or event.destination
+end
+
+function cleanup.on_built(event)
+  local entity = event_entity(event)
+  if valid(entity) and entity.name == constants.nest_entity then
+    nests.register(entity)
+  end
+end
+
+function cleanup.on_removed(event)
+  local entity = event_entity(event)
+  if not entity then return end
+
+  if entity.name == constants.nest_entity then
+    local record = nests.get_by_entity(entity)
+    if not record then return end
+    local position = valid(entity) and entity.position or record.position
+    carriers.handle_nest_removed(record.id, position)
+    gui.close_nest(record.id)
+    nests.remove(record.id)
+    return
+  end
+
+  if entity.name == constants.carrier_unit and entity.unit_number then
+    carriers.remove_by_unit_number(entity.unit_number, {spill_cargo = true})
+  end
+end
+
+function cleanup.on_entity_cloned(event)
+  if valid(event.destination) and event.destination.name == constants.nest_entity then
+    nests.register(event.destination)
+  end
+end
+
+function cleanup.on_object_destroyed(event)
+  local data = state.get()
+  local registration = data.destroy_registrations[event.registration_number]
+  if not registration then return end
+  data.destroy_registrations[event.registration_number] = nil
+
+  if registration.type == "nest" then
+    local record = nests.get(registration.id)
+    if not record then return end
+    carriers.handle_nest_removed(record.id, record.position)
+    gui.close_nest(record.id)
+    nests.remove(record.id)
+    return
+  end
+
+  if registration.type == "carrier" then
+    carriers.remove(registration.id, {spill_cargo = true})
+  end
+end
+
+return cleanup

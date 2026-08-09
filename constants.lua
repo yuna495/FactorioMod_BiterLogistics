@@ -1,0 +1,42 @@
+local constants = {}
+
+constants.nest_entity = "biter-logistics-nest"
+constants.nest_item = "biter-logistics-nest"
+constants.carrier_unit = "biter-logistics-carrier-biter-unit"
+constants.carrier_item = "biter-logistics-carrier-biter"
+
+constants.slots = {
+  carrier = 1,
+  cargo_first = 2,
+  cargo_last = 11,
+  cargo_count = 10,
+  total = 11
+}
+
+constants.ticks = {
+  nest_update_interval = 30,
+  carrier_update_interval = 15,
+  nests_per_update = 16,
+  carriers_per_update = 32,
+  idle_delay = 60,
+  retry_delay = 120,
+  command_timeout = 60 * 60
+}
+
+constants.command = {
+  radius = 3,
+  stop_ticks = 5,
+  pathfind_flags = {
+    cache = true,
+    low_priority = true
+  }
+}
+
+constants.gui = {
+  root = "biter_logistics_nest_gui",
+  name_field = "biter_logistics_nest_name",
+  destination_dropdown = "biter_logistics_destination",
+  refresh_button = "biter_logistics_refresh"
+}
+
+return constants
