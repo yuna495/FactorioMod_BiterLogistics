@@ -205,9 +205,17 @@ local function duplicate_indices_for(scoped_records)
     end
   end
 
+  local index_records = {}
+  for index, record in ipairs(scoped_records) do
+    index_records[index] = record
+  end
+  table.sort(index_records, function(a, b)
+    return a.id < b.id
+  end)
+
   local duplicate_indices = {}
   local name_indices = {}
-  for _, record in ipairs(scoped_records) do
+  for _, record in ipairs(index_records) do
     if record.display_name and record.display_name ~= "" and name_counts[record.display_name] > 1 then
       local duplicate_index = (name_indices[record.display_name] or 0) + 1
       name_indices[record.display_name] = duplicate_index

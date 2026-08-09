@@ -93,7 +93,8 @@ function gui.open(player, record)
   name_flow.add{
     type = "textfield",
     name = constants.gui.name_field,
-    text = record.display_name or ""
+    text = record.display_name or "",
+    icon_selector = true
   }
   name_flow.add{
     type = "label",
