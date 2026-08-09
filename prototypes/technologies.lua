@@ -16,6 +16,13 @@ local science = {
     {"chemical-science-pack", 1},
     {"production-science-pack", 1}
   },
+  utility = {
+    {"automation-science-pack", 1},
+    {"logistic-science-pack", 1},
+    {"chemical-science-pack", 1},
+    {"production-science-pack", 1},
+    {"utility-science-pack", 1}
+  },
   space = {
     {"automation-science-pack", 1},
     {"logistic-science-pack", 1},
@@ -69,7 +76,7 @@ local function nothing_effect(description, icon, icon_size)
   }
 end
 
-local function technology(name, icons, prerequisites, count, ingredients, effect_description, effect_icon, effect_icon_size)
+local function technology(name, icons, prerequisites, count, ingredients, time, effect_description, effect_icon, effect_icon_size)
   return {
     type = "technology",
     name = name,
@@ -81,7 +88,7 @@ local function technology(name, icons, prerequisites, count, ingredients, effect
     unit = {
       count = count,
       ingredients = ingredients,
-      time = 30
+      time = time
     },
     upgrade = true,
     order = "c-k-b[" .. name .. "]"
@@ -104,7 +111,7 @@ local logistics_tech = {
   },
   prerequisites = {"automated-rail-transportation"},
   unit = {
-    count = 100,
+    count = 200,
     ingredients = science.red_green,
     time = 30
   },
@@ -118,9 +125,10 @@ local nest_capacity_icons = single_icon(nest_icon, nest_icon_size, nest_icon_sca
 local technologies = {logistics_tech}
 
 for level, spec in ipairs({
-  {count = 150, ingredients = science.red_green, prerequisites = {constants.research.base}},
-  {count = 300, ingredients = science.chemical, prerequisites = {constants.research.carrier_capacity_prefix .. "1", "chemical-science-pack"}},
-  {count = 600, ingredients = science.production, prerequisites = {constants.research.carrier_capacity_prefix .. "2", "production-science-pack"}}
+  {count = 150, time = 30, ingredients = science.red_green, prerequisites = {constants.research.base}},
+  {count = 300, time = 30, ingredients = science.chemical, prerequisites = {constants.research.carrier_capacity_prefix .. "1", "chemical-science-pack"}},
+  {count = 600, time = 30, ingredients = science.production, prerequisites = {constants.research.carrier_capacity_prefix .. "2", "production-science-pack"}},
+  {count = 1000, time = 60, ingredients = science.utility, prerequisites = {constants.research.carrier_capacity_prefix .. "3", "space-science-pack"}}
 }) do
   technologies[#technologies + 1] = technology(
     constants.research.carrier_capacity_prefix .. level,
@@ -128,34 +136,17 @@ for level, spec in ipairs({
     spec.prerequisites,
     spec.count,
     spec.ingredients,
+    spec.time,
     "Carrier Biter cargo capacity: +1 stack",
     biter_icon,
     biter_icon_size
   )
 end
 
-technologies[#technologies + 1] = {
-  type = "technology",
-  name = constants.research.carrier_capacity_infinite,
-  icons = capacity_icons,
-  effects = {
-    nothing_effect("Carrier Biter cargo capacity: +1 stack", biter_icon, biter_icon_size)
-  },
-  prerequisites = {constants.research.carrier_capacity_prefix .. "3", "space-science-pack"},
-  unit = {
-    count_formula = "2^(L-4)*1000",
-    ingredients = science.space,
-    time = 60
-  },
-  max_level = "infinite",
-  upgrade = true,
-  order = "c-k-b[" .. constants.research.carrier_capacity_infinite .. "]"
-}
-
 for level, spec in ipairs({
-  {count = 100, ingredients = science.red_green, prerequisites = {constants.research.base}},
-  {count = 250, ingredients = science.chemical, prerequisites = {constants.research.carrier_speed_prefix .. "1", "chemical-science-pack"}},
-  {count = 500, ingredients = science.production, prerequisites = {constants.research.carrier_speed_prefix .. "2", "production-science-pack"}}
+  {count = 100, time = 30, ingredients = science.red_green, prerequisites = {constants.research.base}},
+  {count = 250, time = 30, ingredients = science.chemical, prerequisites = {constants.research.carrier_speed_prefix .. "1", "chemical-science-pack"}},
+  {count = 500, time = 30, ingredients = science.production, prerequisites = {constants.research.carrier_speed_prefix .. "2", "production-science-pack"}}
 }) do
   technologies[#technologies + 1] = technology(
     constants.research.carrier_speed_prefix .. level,
@@ -163,6 +154,7 @@ for level, spec in ipairs({
     spec.prerequisites,
     spec.count,
     spec.ingredients,
+    spec.time,
     "Carrier Biter speed: +20%",
     biter_icon,
     biter_icon_size
@@ -171,26 +163,26 @@ end
 
 technologies[#technologies + 1] = {
   type = "technology",
-  name = constants.research.carrier_speed_infinite,
+  name = constants.research.carrier_speed_leveled,
   icons = speed_icons,
   effects = {
     nothing_effect("Carrier Biter speed: +10%", biter_icon, biter_icon_size)
   },
   prerequisites = {constants.research.carrier_speed_prefix .. "3", "space-science-pack"},
   unit = {
-    count_formula = "2^(L-4)*750",
+    count_formula = "750 * (L - 3)",
     ingredients = science.space,
     time = 60
   },
-  max_level = "infinite",
+  max_level = constants.research.carrier_speed_max_level,
   upgrade = true,
-  order = "c-k-c[" .. constants.research.carrier_speed_infinite .. "]"
+  order = "c-k-c[" .. constants.research.carrier_speed_leveled .. "]"
 }
 
 for level, spec in ipairs({
-  {count = 150, slots = 20, ingredients = science.red_green, prerequisites = {constants.research.base}},
-  {count = 300, slots = 30, ingredients = science.chemical, prerequisites = {constants.research.nest_capacity_prefix .. "1", "chemical-science-pack"}},
-  {count = 600, slots = 40, ingredients = science.production, prerequisites = {constants.research.nest_capacity_prefix .. "2", "production-science-pack"}}
+  {count = 150, time = 30, slots = 20, ingredients = science.red_green, prerequisites = {constants.research.base}},
+  {count = 300, time = 30, slots = 30, ingredients = science.chemical, prerequisites = {constants.research.nest_capacity_prefix .. "1", "chemical-science-pack"}},
+  {count = 600, time = 30, slots = 40, ingredients = science.production, prerequisites = {constants.research.nest_capacity_prefix .. "2", "production-science-pack"}}
 }) do
   technologies[#technologies + 1] = technology(
     constants.research.nest_capacity_prefix .. level,
@@ -198,6 +190,7 @@ for level, spec in ipairs({
     spec.prerequisites,
     spec.count,
     spec.ingredients,
+    spec.time,
     "Logistics Nest cargo slots: " .. spec.slots,
     nest_icon,
     nest_icon_size

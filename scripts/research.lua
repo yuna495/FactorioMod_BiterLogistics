@@ -6,7 +6,8 @@ local research = {}
 local capacity_technologies = {
   constants.research.carrier_capacity_prefix .. "1",
   constants.research.carrier_capacity_prefix .. "2",
-  constants.research.carrier_capacity_prefix .. "3"
+  constants.research.carrier_capacity_prefix .. "3",
+  constants.research.carrier_capacity_prefix .. "4"
 }
 
 local speed_technologies = {
@@ -22,8 +23,7 @@ local nest_capacity_technologies = {
 }
 
 local tracked_technologies = {
-  [constants.research.carrier_capacity_infinite] = true,
-  [constants.research.carrier_speed_infinite] = true
+  [constants.research.carrier_speed_leveled] = true
 }
 
 for _, name in ipairs(capacity_technologies) do tracked_technologies[name] = true end
@@ -62,7 +62,7 @@ local function researched_finite_levels(force, names)
   return levels
 end
 
-local function researched_infinite_levels(force, name, first_level)
+local function researched_leveled_levels(force, name, first_level, max_level)
   local tech = technology(force, name)
   if not tech or not tech.valid then return 0 end
 
@@ -70,7 +70,11 @@ local function researched_infinite_levels(force, name, first_level)
   if tech.researched then
     completed = completed + 1
   end
-  return math.max(0, completed)
+  completed = math.max(0, completed)
+  if max_level then
+    completed = math.min(completed, max_level - first_level + 1)
+  end
+  return completed
 end
 
 local function clamp(value, minimum, maximum)
@@ -83,17 +87,21 @@ local function calculate_force_effects(force)
   local effects = default_effects(force)
 
   local finite_capacity_levels = researched_finite_levels(force, capacity_technologies)
-  local infinite_capacity_levels = researched_infinite_levels(force, constants.research.carrier_capacity_infinite, 4)
-  effects.carrier_capacity_level = finite_capacity_levels + infinite_capacity_levels
+  effects.carrier_capacity_level = finite_capacity_levels
   effects.carrier_capacity_stacks = constants.research.default_carrier_capacity_stacks + effects.carrier_capacity_level
 
   local finite_speed_levels = researched_finite_levels(force, speed_technologies)
-  local infinite_speed_levels = researched_infinite_levels(force, constants.research.carrier_speed_infinite, 4)
-  effects.carrier_speed_level = finite_speed_levels + infinite_speed_levels
+  local leveled_speed_levels = researched_leveled_levels(
+    force,
+    constants.research.carrier_speed_leveled,
+    constants.research.carrier_speed_leveled_first_level,
+    constants.research.carrier_speed_max_level
+  )
+  effects.carrier_speed_level = finite_speed_levels + leveled_speed_levels
   effects.carrier_speed_multiplier = clamp(
     constants.research.default_carrier_speed_multiplier
       + finite_speed_levels * constants.research.carrier_speed_finite_bonus
-      + infinite_speed_levels * constants.research.carrier_speed_infinite_bonus,
+      + leveled_speed_levels * constants.research.carrier_speed_leveled_bonus,
     constants.research.default_carrier_speed_multiplier,
     constants.research.max_carrier_speed_multiplier
   )
