@@ -1,6 +1,7 @@
 local constants = require("constants")
 
 local nest_picture_scale = 0.4
+local neutral_mask_tint = {r = 0.72, g = 0.72, b = 0.72, a = 0.45}
 
 local nest = table.deepcopy(data.raw["container"]["steel-chest"])
 nest.name = constants.nest_entity
@@ -32,7 +33,7 @@ nest.picture = {
       height = 230,
       scale = nest_picture_scale,
       shift = util.by_pixel(0, -12.5),
-      tint = {r = 0.45, g = 0.85, b = 0.38, a = 1},
+      tint = neutral_mask_tint,
       flags = {"mask"},
       surface = "nauvis",
       usage = "enemy"
@@ -80,7 +81,7 @@ depot.picture = {
       height = 230,
       scale = nest_picture_scale,
       shift = util.by_pixel(0, -12.5),
-      tint = {r = 0.95, g = 0.62, b = 0.18, a = 1},
+      tint = neutral_mask_tint,
       flags = {"mask"},
       surface = "nauvis",
       usage = "enemy"

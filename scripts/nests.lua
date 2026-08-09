@@ -2,6 +2,7 @@ local constants = require("constants")
 local state = require("scripts.state")
 local research = require("scripts.research")
 local jobs = require("scripts.jobs")
+local visuals = require("scripts.visuals")
 
 local nests = {}
 
@@ -157,6 +158,7 @@ function nests.register(entity)
   record.request_quality = record.request_quality or "normal"
 
   nests.configure_inventory(entity)
+  visuals.update_nest(record)
 
   if not record.destroy_registration_number then
     local registration_number = script.register_on_object_destroyed(entity)
@@ -273,6 +275,7 @@ function nests.set_mode(id, mode)
     return false
   end
   record.mode = mode
+  visuals.update_nest(record)
   return true
 end
 
@@ -387,6 +390,7 @@ function nests.remove(id)
   data.supply_reservations[id] = nil
   data.request_reservations[id] = nil
   data.request_queued[id] = nil
+  visuals.destroy(record)
   data.nests[id] = nil
   dequeue(data, id)
 end

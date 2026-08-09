@@ -8,6 +8,21 @@ constants.carrier_unit = "biter-logistics-carrier-biter-unit"
 constants.carrier_item = "biter-logistics-carrier-biter"
 constants.biomass_item = "biter-logistics-biter-biomass"
 
+constants.visuals = {
+  spawner_mask_sprite = "biter-logistics-spawner-color-mask",
+  overlay_alpha = 0.82,
+  color_settings = {
+    supply = "biter-logistics-supply-color",
+    request = "biter-logistics-request-color",
+    depot = "biter-logistics-fuel-depot-color"
+  },
+  default_colors = {
+    supply = {r = 1, g = 0.28, b = 0.22, a = 0.82},
+    request = {r = 0.25, g = 0.58, b = 1, a = 0.82},
+    depot = {r = 0.35, g = 0.95, b = 0.38, a = 0.82}
+  }
+}
+
 constants.nest_slots = {
   cargo_first = 1,
   cargo_count = 10,

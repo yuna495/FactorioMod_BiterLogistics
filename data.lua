@@ -1,3 +1,4 @@
+require("prototypes.sprites")
 require("prototypes.entities")
 require("prototypes.items")
 require("prototypes.recipes")

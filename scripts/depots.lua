@@ -1,6 +1,7 @@
 local constants = require("constants")
 local state = require("scripts.state")
 local food = require("scripts.food")
+local visuals = require("scripts.visuals")
 
 local depots = {}
 
@@ -81,6 +82,7 @@ function depots.register(entity)
   record.carrier_ids = record.carrier_ids or {}
 
   depots.configure_inventory(entity)
+  visuals.update_depot(record)
 
   if not record.destroy_registration_number then
     local registration_number = script.register_on_object_destroyed(entity)
@@ -216,6 +218,7 @@ function depots.remove(id)
   end
 
   data.depots[id] = nil
+  visuals.destroy(record)
   dequeue(data, id)
 end
 
