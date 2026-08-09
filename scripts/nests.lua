@@ -181,6 +181,21 @@ function nests.count_carrier_items(record)
   return 0
 end
 
+function nests.has_cargo(record)
+  if not nests.is_valid(record) then return false end
+  local inventory = record.entity.get_inventory(defines.inventory.chest)
+  if not inventory then return false end
+
+  for slot = constants.slots.cargo_first, math.min(constants.slots.cargo_last, #inventory) do
+    local stack = inventory[slot]
+    if stack.valid_for_read and stack.name ~= constants.carrier_item then
+      return true
+    end
+  end
+
+  return false
+end
+
 function nests.take_one_stack(record)
   if not nests.is_valid(record) then return nil end
   local inventory = record.entity.get_inventory(defines.inventory.chest)
@@ -189,12 +204,13 @@ function nests.take_one_stack(record)
   for slot = constants.slots.cargo_first, math.min(constants.slots.cargo_last, #inventory) do
     local stack = inventory[slot]
     if stack.valid_for_read and stack.name ~= constants.carrier_item then
+      local name = stack.name
       local quality = stack.quality and stack.quality.name or "normal"
       local count = math.min(stack.count, stack.prototype.stack_size)
-      local request = {name = stack.name, count = count, quality = quality}
+      local request = {name = name, count = count, quality = quality}
       local removed = inventory.remove(request)
       if removed > 0 then
-        return {name = stack.name, count = removed, quality = quality}
+        return {name = name, count = removed, quality = quality}
       end
     end
   end
@@ -260,7 +276,7 @@ local function process_carrier_slot(record, spawn_callback)
   end
 end
 
-function nests.process_batch(spawn_callback)
+function nests.process_batch(spawn_callback, wake_callback)
   local data = state.get()
   local queue = data.nest_queue
   local length = #queue
@@ -276,6 +292,9 @@ function nests.process_batch(spawn_callback)
       if nests.is_valid(record) then
         nests.configure_inventory(record.entity)
         process_carrier_slot(record, spawn_callback)
+        if wake_callback and record.destination_nest_id and nests.has_cargo(record) then
+          wake_callback(record)
+        end
       else
         nests.remove(id)
       end

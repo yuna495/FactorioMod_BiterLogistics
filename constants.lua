@@ -20,11 +20,15 @@ constants.ticks = {
   carriers_per_update = 32,
   idle_delay = 60,
   retry_delay = 120,
+  command_check_interval = 60,
   command_timeout = 60 * 60
 }
 
 constants.command = {
-  radius = 3,
+  radius = 0.75,
+  interaction_radius = 4,
+  destination_search_radius = 8,
+  destination_precision = 0.5,
   stop_ticks = 5,
   pathfind_flags = {
     cache = true,
@@ -37,6 +41,10 @@ constants.gui = {
   name_field = "biter_logistics_nest_name",
   destination_dropdown = "biter_logistics_destination",
   refresh_button = "biter_logistics_refresh"
+}
+
+constants.commands = {
+  debug = "biter-logistics-debug"
 }
 
 return constants

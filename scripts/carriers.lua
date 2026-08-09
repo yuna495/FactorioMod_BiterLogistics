@@ -184,7 +184,34 @@ local function is_near(record, nest_record)
   if not valid(record.entity) or not nests.is_valid(nest_record) then return false end
   local dx = record.entity.position.x - nest_record.entity.position.x
   local dy = record.entity.position.y - nest_record.entity.position.y
-  return dx * dx + dy * dy <= constants.command.radius * constants.command.radius
+  return dx * dx + dy * dy <= constants.command.interaction_radius * constants.command.interaction_radius
+end
+
+local function is_near_position(record, position, radius)
+  if not valid(record.entity) or not position then return false end
+  local dx = record.entity.position.x - position.x
+  local dy = record.entity.position.y - position.y
+  return dx * dx + dy * dy <= radius * radius
+end
+
+local function destination_position(record, nest_record)
+  if not valid(record.entity) or not nests.is_valid(nest_record) then return nil end
+  return nest_record.entity.surface.find_non_colliding_position(
+    constants.carrier_unit,
+    nest_record.entity.position,
+    constants.command.destination_search_radius,
+    constants.command.destination_precision
+  )
+end
+
+local moving_states = {
+  to_source = true,
+  to_destination = true,
+  returning = true
+}
+
+local function is_moving_state(record)
+  return record and moving_states[record.state] or false
 end
 
 local function target_for_state(record)
@@ -203,6 +230,9 @@ local function issue_command(record, target_nest_id, next_state)
     return false
   end
 
+  local destination = destination_position(record, target)
+  if not destination then return false end
+
   record.entity.commandable.set_command{
     type = defines.command.compound,
     distraction = defines.distraction.none,
@@ -210,7 +240,7 @@ local function issue_command(record, target_nest_id, next_state)
     commands = {
       {
         type = defines.command.go_to_location,
-        destination = copy_position(target.entity.position),
+        destination = copy_position(destination),
         radius = constants.command.radius,
         distraction = defines.distraction.none,
         pathfind_flags = constants.command.pathfind_flags
@@ -225,9 +255,10 @@ local function issue_command(record, target_nest_id, next_state)
 
   record.state = next_state
   record.command_target_nest_id = target_nest_id
+  record.command_position = copy_position(destination)
   record.command_failed = nil
   record.command_tick = game.tick
-  record.next_update_tick = game.tick + constants.ticks.command_timeout
+  record.next_update_tick = game.tick + constants.ticks.command_check_interval
   return true
 end
 
@@ -235,6 +266,7 @@ local function set_idle(record, delay)
   clear_job(record, "complete")
   record.state = "idle"
   record.command_target_nest_id = nil
+  record.command_position = nil
   record.command_failed = nil
   record.next_update_tick = game.tick + (delay or constants.ticks.idle_delay)
 end
@@ -249,6 +281,35 @@ local function return_home(record)
   end
 end
 
+local function complete_command_success(record)
+  record.command_failed = nil
+  record.command_target_nest_id = nil
+  record.command_position = nil
+
+  if record.state == "to_source" then
+    record.state = "loading"
+    jobs.set_state(record.job_id, "loading")
+    record.next_update_tick = game.tick
+    return true
+  end
+
+  if record.state == "to_destination" then
+    record.state = "unloading"
+    jobs.set_state(record.job_id, "unloading")
+    record.next_update_tick = game.tick
+    return true
+  end
+
+  if record.state == "returning" then
+    record.state = "returning_unload"
+    jobs.set_state(record.job_id, "returning_unload")
+    record.next_update_tick = game.tick
+    return true
+  end
+
+  return false
+end
+
 local function update_record(record)
   if not valid(record.entity) then
     carriers.remove(record.id, {spill_cargo = true})
@@ -259,9 +320,26 @@ local function update_record(record)
   record.surface_index = record.entity.surface_index
   record.force_name = record.entity.force.name
 
-  if record.state == "to_source" or record.state == "to_destination" or record.state == "returning" then
-    if record.command_failed or (record.command_tick and game.tick - record.command_tick >= constants.ticks.command_timeout) then
-      local target_nest_id = target_for_state(record)
+  if is_moving_state(record) then
+    local target_nest_id = target_for_state(record)
+    local target = target_nest_id and nests.get(target_nest_id) or nil
+    local commandable = record.entity.commandable
+    local command_ended = commandable and not commandable.has_command
+    local command_timed_out = record.command_tick
+      and game.tick - record.command_tick >= constants.ticks.command_timeout
+
+    if (record.command_position
+        and is_near_position(record, record.command_position, constants.command.interaction_radius))
+      or (target and nests.is_valid(target) and is_near(record, target)) then
+      if complete_command_success(record) then
+        update_record(record)
+      else
+        set_idle(record)
+      end
+      return
+    end
+
+    if record.command_failed or command_ended or command_timed_out then
       if target_nest_id then
         if not issue_command(record, target_nest_id, record.state) then
           record.next_update_tick = game.tick + constants.ticks.retry_delay
@@ -269,6 +347,8 @@ local function update_record(record)
       else
         set_idle(record)
       end
+    else
+      record.next_update_tick = game.tick + constants.ticks.command_check_interval
     end
     return
   end
@@ -308,6 +388,7 @@ local function update_record(record)
     if is_near(record, home) then
       record.state = "loading"
       record.next_update_tick = game.tick
+      update_record(record)
     elseif not issue_command(record, home.id, "to_source") then
       record.next_update_tick = game.tick + constants.ticks.retry_delay
     end
@@ -381,9 +462,24 @@ local function update_record(record)
       record.cargo = nil
     end
 
-    set_idle(record, constants.ticks.idle_delay)
+    set_idle(record, 0)
+    update_record(record)
     return
   end
+end
+
+local function should_update(record)
+  if not record.next_update_tick or record.next_update_tick <= game.tick then
+    return true
+  end
+
+  if not is_moving_state(record) then return false end
+
+  local target_nest_id = target_for_state(record)
+  local target = target_nest_id and nests.get(target_nest_id) or nil
+  return (record.command_position
+      and is_near_position(record, record.command_position, constants.command.interaction_radius))
+    or (target and nests.is_valid(target) and is_near(record, target))
 end
 
 function carriers.process_batch()
@@ -399,7 +495,7 @@ function carriers.process_batch()
     local id = queue[data.carrier_cursor]
     local record = id and data.carriers[id] or nil
     if record then
-      if not record.next_update_tick or record.next_update_tick <= game.tick then
+      if should_update(record) then
         update_record(record)
         processed = processed + 1
       end
@@ -422,17 +518,7 @@ function carriers.on_ai_command_completed(event)
   end
 
   record.command_failed = nil
-  if record.state == "to_source" then
-    record.state = "loading"
-    jobs.set_state(record.job_id, "loading")
-    update_record(record)
-  elseif record.state == "to_destination" then
-    record.state = "unloading"
-    jobs.set_state(record.job_id, "unloading")
-    update_record(record)
-  elseif record.state == "returning" then
-    record.state = "returning_unload"
-    jobs.set_state(record.job_id, "returning_unload")
+  if complete_command_success(record) then
     update_record(record)
   end
 end
@@ -522,9 +608,22 @@ function carriers.validate()
     local record = data.carriers[id]
     if record and valid(record.entity) then
       data.carrier_by_unit_number[record.unit_number] = id
+      record.next_update_tick = game.tick
       enqueue(data, id)
     elseif record then
       carriers.remove(id, {spill_cargo = true})
+    end
+  end
+end
+
+function carriers.wake_for_nest(nest_record)
+  if not nests.is_valid(nest_record) or not nest_record.carrier_ids then return end
+  local data = state.get()
+
+  for id in pairs(nest_record.carrier_ids) do
+    local record = data.carriers[id]
+    if record then
+      record.next_update_tick = game.tick
     end
   end
 end

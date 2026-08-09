@@ -4,6 +4,7 @@ local nests = require("scripts.nests")
 local carriers = require("scripts.carriers")
 local cleanup = require("scripts.cleanup")
 local gui = require("scripts.gui")
+local debug = require("scripts.debug")
 
 local function initialise()
   state.get()
@@ -46,9 +47,11 @@ script.on_event(defines.events.on_gui_selection_state_changed, gui.on_selection_
 script.on_event(defines.events.on_gui_click, gui.on_click)
 
 script.on_nth_tick(constants.ticks.nest_update_interval, function()
-  nests.process_batch(carriers.spawn_from_nest)
+  nests.process_batch(carriers.spawn_from_nest, carriers.wake_for_nest)
 end)
 
 script.on_nth_tick(constants.ticks.carrier_update_interval, function()
   carriers.process_batch()
 end)
+
+debug.register_commands()
