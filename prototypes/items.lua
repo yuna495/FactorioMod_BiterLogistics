@@ -9,6 +9,15 @@ nest_item.place_result = constants.nest_entity
 nest_item.subgroup = "storage"
 nest_item.order = "z[biter-logistics]-a[nest]"
 
+local depot_item = table.deepcopy(data.raw["item"]["steel-chest"])
+depot_item.name = constants.depot_item
+depot_item.localised_name = {"item-name.biter-logistics-fuel-depot"}
+depot_item.localised_description = {"item-description.biter-logistics-fuel-depot"}
+depot_item.icon = "__base__/graphics/icons/spitter-spawner.png"
+depot_item.place_result = constants.depot_entity
+depot_item.subgroup = "storage"
+depot_item.order = "z[biter-logistics]-b[fuel-depot]"
+
 local carrier_item = {
   type = "item",
   name = constants.carrier_item,
@@ -16,8 +25,19 @@ local carrier_item = {
   localised_description = {"item-description.biter-logistics-carrier-biter"},
   icon = "__base__/graphics/icons/small-biter.png",
   subgroup = "storage",
-  order = "z[biter-logistics]-b[carrier-biter]",
+  order = "z[biter-logistics]-c[carrier-biter]",
   stack_size = 50
 }
 
-data:extend({nest_item, carrier_item})
+local biomass_item = {
+  type = "item",
+  name = constants.biomass_item,
+  localised_name = {"item-name.biter-logistics-biter-biomass"},
+  localised_description = {"item-description.biter-logistics-biter-biomass"},
+  icon = "__base__/graphics/icons/medium-biter.png",
+  subgroup = "raw-material",
+  order = "z[biter-logistics]-a[biter-biomass]",
+  stack_size = 100
+}
+
+data:extend({nest_item, depot_item, carrier_item, biomass_item})

@@ -1,8 +1,10 @@
 local constants = require("constants")
 local state = require("scripts.state")
 local nests = require("scripts.nests")
+local depots = require("scripts.depots")
 local jobs = require("scripts.jobs")
 local research = require("scripts.research")
+local food = require("scripts.food")
 
 local carriers = {}
 
@@ -79,19 +81,20 @@ local function carrier_capacity(record)
   return math.max(1, research.carrier_capacity_for_force_name(force_name))
 end
 
-local function load_cargo_from_source(record, source)
+local function load_cargo_from_source(record, source, job)
   local cargo_slots = normalise_cargo_slots(record)
-  local capacity = carrier_capacity(record)
-  local loaded = false
+  local capacity_left = carrier_capacity(record) - #cargo_slots
+  if capacity_left <= 0 or not job or not job.item_name then return 0 end
 
-  while #cargo_slots < capacity do
-    local cargo = nests.take_one_stack(source)
-    if not cargo then break end
+  local loaded_count = 0
+  local taken = nests.take_stacks(source, job.item_name, job.requested_count or 0, capacity_left)
+  for _, cargo in ipairs(taken) do
     cargo_slots[#cargo_slots + 1] = cargo
-    loaded = true
+    loaded_count = loaded_count + cargo.count
   end
 
-  return loaded
+  jobs.set_picked_count(job.id, loaded_count)
+  return loaded_count
 end
 
 local function insert_all_cargo(record, nest_record)
@@ -176,7 +179,7 @@ local function clear_job(record, result)
   end
 end
 
-function carriers.register(entity, home_nest_id, quality)
+function carriers.register(entity, home_depot_id, quality)
   if not valid(entity) or entity.name ~= constants.carrier_unit or not entity.unit_number then
     return nil
   end
@@ -192,7 +195,7 @@ function carriers.register(entity, home_nest_id, quality)
       id = id,
       unit_number = entity.unit_number,
       state = "idle",
-      home_nest_id = home_nest_id,
+      home_depot_id = home_depot_id,
       quality = quality or "normal"
     }
     data.carriers[id] = record
@@ -201,17 +204,19 @@ function carriers.register(entity, home_nest_id, quality)
 
   record.entity = entity
   record.unit_number = entity.unit_number
-  record.home_nest_id = home_nest_id or record.home_nest_id
+  record.home_depot_id = home_depot_id or record.home_depot_id
+  record.home_nest_id = nil
   record.quality = quality or record.quality or "normal"
   record.force_name = entity.force.name
   record.surface_index = entity.surface_index
   record.last_position = copy_position(entity.position)
   record.next_update_tick = game.tick
+  food.ensure_carrier_fields(record)
   normalise_cargo_slots(record)
   research.apply_to_carrier(record)
 
-  if record.home_nest_id then
-    local home = nests.get(record.home_nest_id)
+  if record.home_depot_id then
+    local home = depots.get(record.home_depot_id)
     if home then
       home.carrier_ids = home.carrier_ids or {}
       home.carrier_ids[id] = true
@@ -228,10 +233,10 @@ function carriers.register(entity, home_nest_id, quality)
   return record
 end
 
-function carriers.spawn_from_nest(nest_record, quality)
-  if not nests.is_valid(nest_record) then return false end
+function carriers.spawn_from_depot(depot_record, quality)
+  if not depots.is_valid(depot_record) then return false end
 
-  local entity = nest_record.entity
+  local entity = depot_record.entity
   local position = entity.surface.find_non_colliding_position(
     constants.carrier_unit,
     entity.position,
@@ -252,7 +257,7 @@ function carriers.spawn_from_nest(nest_record, quality)
   local carrier_entity = entity.surface.create_entity(create)
   if not carrier_entity then return false end
 
-  if not carriers.register(carrier_entity, nest_record.id, quality) then
+  if not carriers.register(carrier_entity, depot_record.id, quality) then
     carrier_entity.destroy()
     return false
   end
@@ -260,10 +265,10 @@ function carriers.spawn_from_nest(nest_record, quality)
   return true
 end
 
-local function is_near(record, nest_record)
-  if not valid(record.entity) or not nests.is_valid(nest_record) then return false end
-  local dx = record.entity.position.x - nest_record.entity.position.x
-  local dy = record.entity.position.y - nest_record.entity.position.y
+local function is_near_record(record, target_record)
+  if not valid(record.entity) or not target_record or not valid(target_record.entity) then return false end
+  local dx = record.entity.position.x - target_record.entity.position.x
+  local dy = record.entity.position.y - target_record.entity.position.y
   return dx * dx + dy * dy <= constants.command.interaction_radius * constants.command.interaction_radius
 end
 
@@ -274,11 +279,11 @@ local function is_near_position(record, position, radius)
   return dx * dx + dy * dy <= radius * radius
 end
 
-local function destination_position(record, nest_record)
-  if not valid(record.entity) or not nests.is_valid(nest_record) then return nil end
-  return nest_record.entity.surface.find_non_colliding_position(
+local function destination_position(record, target_record)
+  if not valid(record.entity) or not target_record or not valid(target_record.entity) then return nil end
+  return target_record.entity.surface.find_non_colliding_position(
     constants.carrier_unit,
-    nest_record.entity.position,
+    target_record.entity.position,
     constants.command.destination_search_radius,
     constants.command.destination_precision
   )
@@ -296,21 +301,22 @@ end
 
 local function target_for_state(record)
   local job = jobs.get(record.job_id)
-  if record.state == "returning" and not job then return record.home_nest_id end
+  if record.state == "returning" and not job then
+    return depots.get(record.home_depot_id), "depot", record.home_depot_id
+  end
   if not job then return nil end
-  if record.state == "to_source" then return job.source_nest_id end
-  if record.state == "to_destination" then return job.destination_nest_id end
-  if record.state == "returning" then return job.home_nest_id or record.home_nest_id end
+  if record.state == "to_source" then return nests.get(job.source_nest_id), "nest", job.source_nest_id end
+  if record.state == "to_destination" then return nests.get(job.destination_nest_id), "nest", job.destination_nest_id end
+  if record.state == "returning" then return depots.get(job.home_depot_id or record.home_depot_id), "depot", job.home_depot_id or record.home_depot_id end
   return nil
 end
 
-local function issue_command(record, target_nest_id, next_state)
-  local target = nests.get(target_nest_id)
-  if not nests.is_valid(target) or not valid(record.entity) or not record.entity.commandable then
+local function issue_command(record, target_record, target_type, target_id, next_state)
+  if not target_record or not valid(target_record.entity) or not valid(record.entity) or not record.entity.commandable then
     return false
   end
 
-  local destination = destination_position(record, target)
+  local destination = destination_position(record, target_record)
   if not destination then return false end
 
   record.entity.commandable.set_command{
@@ -334,7 +340,8 @@ local function issue_command(record, target_nest_id, next_state)
   }
 
   record.state = next_state
-  record.command_target_nest_id = target_nest_id
+  record.command_target_type = target_type
+  record.command_target_id = target_id
   record.command_position = copy_position(destination)
   record.command_failed = nil
   record.command_tick = game.tick
@@ -342,10 +349,13 @@ local function issue_command(record, target_nest_id, next_state)
   return true
 end
 
+local update_record
+
 local function set_idle(record, delay)
   clear_job(record, "complete")
   record.state = "idle"
-  record.command_target_nest_id = nil
+  record.command_target_type = nil
+  record.command_target_id = nil
   record.command_position = nil
   record.command_failed = nil
   record.next_update_tick = game.tick + (delay or constants.ticks.idle_delay)
@@ -353,10 +363,15 @@ end
 
 local function return_home(record)
   local job = jobs.get(record.job_id)
-  local home_nest_id = job and job.home_nest_id or record.home_nest_id
+  local home_depot_id = job and job.home_depot_id or record.home_depot_id
+  local home = depots.get(home_depot_id)
   jobs.set_state(record.job_id, "returning")
-  if not issue_command(record, home_nest_id, "returning") then
-    record.state = "returning_unload"
+  record.state = "returning"
+  record.command_target_type = nil
+  record.command_target_id = nil
+  record.command_position = nil
+  record.command_failed = nil
+  if not issue_command(record, home, "depot", home_depot_id, "returning") then
     record.next_update_tick = game.tick + constants.ticks.retry_delay
   end
 end
@@ -370,7 +385,8 @@ end
 local function wait_for_destination_space(record)
   jobs.set_state(record.job_id, "waiting_for_destination_space")
   record.state = "waiting_for_destination_space"
-  record.command_target_nest_id = nil
+  record.command_target_type = nil
+  record.command_target_id = nil
   record.command_position = nil
   record.command_failed = nil
   record.next_update_tick = game.tick + destination_space_delay(record)
@@ -378,7 +394,8 @@ end
 
 local function complete_command_success(record)
   record.command_failed = nil
-  record.command_target_nest_id = nil
+  record.command_target_type = nil
+  record.command_target_id = nil
   record.command_position = nil
 
   if record.state == "to_source" then
@@ -396,16 +413,14 @@ local function complete_command_success(record)
   end
 
   if record.state == "returning" then
-    record.state = "returning_unload"
-    jobs.set_state(record.job_id, "returning_unload")
-    record.next_update_tick = game.tick
-    return true
+    set_idle(record, constants.ticks.idle_delay)
+    return false
   end
 
   return false
 end
 
-local function update_record(record)
+update_record = function(record)
   if not valid(record.entity) then
     carriers.remove(record.id, {spill_cargo = true})
     return
@@ -414,10 +429,10 @@ local function update_record(record)
   record.last_position = copy_position(record.entity.position)
   record.surface_index = record.entity.surface_index
   record.force_name = record.entity.force.name
+  food.ensure_carrier_fields(record)
 
   if is_moving_state(record) then
-    local target_nest_id = target_for_state(record)
-    local target = target_nest_id and nests.get(target_nest_id) or nil
+    local target_record, target_type, target_id = target_for_state(record)
     local commandable = record.entity.commandable
     local command_ended = commandable and not commandable.has_command
     local command_timed_out = record.command_tick
@@ -425,21 +440,20 @@ local function update_record(record)
 
     if (record.command_position
         and is_near_position(record, record.command_position, constants.command.interaction_radius))
-      or (target and nests.is_valid(target) and is_near(record, target)) then
+      or is_near_record(record, target_record) then
       if complete_command_success(record) then
         update_record(record)
-      else
-        set_idle(record)
       end
       return
     end
 
     if record.command_failed or command_ended or command_timed_out then
-      if target_nest_id then
-        if not issue_command(record, target_nest_id, record.state) then
+      if target_record then
+        if not issue_command(record, target_record, target_type, target_id, record.state) then
           record.next_update_tick = game.tick + constants.ticks.retry_delay
         end
       else
+        if has_carried_cargo(record) then spill_cargo(record) end
         set_idle(record)
       end
     else
@@ -449,51 +463,19 @@ local function update_record(record)
   end
 
   if record.state == "idle" then
+    local home = depots.get(record.home_depot_id)
+    if not depots.is_valid(home) then
+      carriers.remove(record.id, {spill_cargo = true, return_carrier_item = true, destroy_entity = true})
+      return
+    end
+
     if has_carried_cargo(record) then
-      local home = nests.get(record.home_nest_id)
-      if not nests.is_valid(home) then
-        carriers.remove(record.id, {spill_cargo = true, destroy_entity = true})
-        return
-      end
-      if is_near(record, home) then
-        record.state = "waiting_with_cargo"
-        record.next_update_tick = game.tick
-        return update_record(record)
-      end
-      if not issue_command(record, home.id, "returning") then
-        record.next_update_tick = game.tick + constants.ticks.retry_delay
-      end
-      return
+      spill_cargo(record)
     end
 
-    local home = nests.get(record.home_nest_id)
-    if not nests.is_valid(home) then
-      carriers.remove(record.id, {spill_cargo = true, destroy_entity = true})
-      return
-    end
-
-    if not nests.has_cargo(home) then
-      if is_near(record, home) then
-        set_idle(record, constants.ticks.idle_delay)
-      elseif not issue_command(record, home.id, "returning") then
-        record.next_update_tick = game.tick + constants.ticks.retry_delay
-      end
-      return
-    end
-
-    local job = jobs.create_fixed_route(record, home)
-    if not job then
+    if is_near_record(record, home) then
       record.next_update_tick = game.tick + constants.ticks.idle_delay
-      return
-    end
-
-    record.job_id = job.id
-    jobs.set_state(job.id, "to_source")
-    if is_near(record, home) then
-      record.state = "loading"
-      record.next_update_tick = game.tick
-      update_record(record)
-    elseif not issue_command(record, home.id, "to_source") then
+    elseif not issue_command(record, home, "depot", home.id, "returning") then
       record.next_update_tick = game.tick + constants.ticks.retry_delay
     end
     return
@@ -504,23 +486,27 @@ local function update_record(record)
     local source = job and nests.get(job.source_nest_id)
     local destination = job and nests.get(job.destination_nest_id)
     if not job or not nests.is_valid(source) then
-      carriers.remove(record.id, {spill_cargo = true, destroy_entity = true})
+      jobs.set_failure(record.job_id, "source_invalid")
+      return_home(record)
       return
     end
     if not nests.is_valid(destination) then
+      jobs.set_failure(record.job_id, "destination_invalid")
       return_home(record)
       return
     end
 
-    load_cargo_from_source(record, source)
-
-    if not has_carried_cargo(record) then
-      set_idle(record, constants.ticks.idle_delay)
+    local loaded = load_cargo_from_source(record, source, job)
+    if loaded <= 0 or not has_carried_cargo(record) then
+      jobs.set_failure(record.job_id, "no_supply")
+      return_home(record)
       return
     end
 
     jobs.set_state(record.job_id, "to_destination")
-    if not issue_command(record, destination.id, "to_destination") then
+    if not issue_command(record, destination, "nest", destination.id, "to_destination") then
+      jobs.set_failure(record.job_id, "destination_command_failed")
+      spill_cargo(record)
       return_home(record)
     end
     return
@@ -536,6 +522,7 @@ local function update_record(record)
 
     if not nests.is_valid(destination) then
       jobs.set_failure(record.job_id, "destination_invalid")
+      spill_cargo(record)
       return_home(record)
       return
     end
@@ -561,13 +548,14 @@ local function update_record(record)
 
     if not job or not nests.is_valid(destination) then
       jobs.set_failure(record.job_id, "destination_invalid")
+      spill_cargo(record)
       return_home(record)
       return
     end
 
-    if not is_near(record, destination) then
+    if not is_near_record(record, destination) then
       jobs.set_state(record.job_id, "to_destination")
-      if not issue_command(record, destination.id, "to_destination") then
+      if not issue_command(record, destination, "nest", destination.id, "to_destination") then
         wait_for_destination_space(record)
       end
       return
@@ -583,34 +571,7 @@ local function update_record(record)
     return
   end
 
-  if record.state == "returning_unload" or record.state == "waiting_with_cargo" then
-    local home = nests.get(record.home_nest_id)
-    if not nests.is_valid(home) then
-      carriers.remove(record.id, {spill_cargo = true, destroy_entity = true})
-      return
-    end
-
-    if not is_near(record, home) then
-      if not issue_command(record, home.id, "returning") then
-        record.next_update_tick = game.tick + constants.ticks.retry_delay
-      end
-      return
-    end
-
-    if has_carried_cargo(record) then
-      insert_all_cargo(record, home)
-      if has_carried_cargo(record) then
-        jobs.set_state(record.job_id, "waiting_for_home_space")
-        record.state = "waiting_with_cargo"
-        record.next_update_tick = game.tick + constants.ticks.idle_delay
-        return
-      end
-    end
-
-    set_idle(record, 0)
-    update_record(record)
-    return
-  end
+  set_idle(record)
 end
 
 local function should_update(record)
@@ -620,11 +581,33 @@ local function should_update(record)
 
   if not is_moving_state(record) then return false end
 
-  local target_nest_id = target_for_state(record)
-  local target = target_nest_id and nests.get(target_nest_id) or nil
+  local target_record = target_for_state(record)
   return (record.command_position
       and is_near_position(record, record.command_position, constants.command.interaction_radius))
-    or (target and nests.is_valid(target) and is_near(record, target))
+    or is_near_record(record, target_record)
+end
+
+function carriers.assign_job(record, job)
+  if not record or not job or record.job_id or record.state ~= "idle" then return false end
+  local source = nests.get(job.source_nest_id)
+  if not nests.is_valid(source) then return false end
+
+  record.job_id = job.id
+  jobs.set_state(job.id, "to_source")
+  if is_near_record(record, source) then
+    record.state = "loading"
+    record.next_update_tick = game.tick
+    update_record(record)
+    return true
+  end
+
+  if not issue_command(record, source, "nest", source.id, "to_source") then
+    record.job_id = nil
+    record.state = "idle"
+    record.next_update_tick = game.tick + constants.ticks.retry_delay
+    return false
+  end
+  return true
 end
 
 function carriers.process_batch()
@@ -681,8 +664,8 @@ function carriers.remove(id, options)
     spill_carrier_item(record, options)
   end
 
-  if record.home_nest_id then
-    local home = data.nests[record.home_nest_id]
+  if record.home_depot_id then
+    local home = data.depots[record.home_depot_id]
     if home and home.carrier_ids then
       home.carrier_ids[id] = nil
     end
@@ -712,7 +695,27 @@ function carriers.remove_by_unit_number(unit_number, options)
   if id then carriers.remove(id, options) end
 end
 
-function carriers.handle_nest_removed(nest_id, position, options)
+function carriers.handle_nest_removed(nest_id)
+  local data = state.get()
+  local carrier_ids = {}
+  for id in pairs(data.carriers) do
+    carrier_ids[#carrier_ids + 1] = id
+  end
+
+  for _, id in ipairs(carrier_ids) do
+    local record = data.carriers[id]
+    if record and record.job_id then
+      local job = jobs.get(record.job_id)
+      if job and (job.source_nest_id == nest_id or job.destination_nest_id == nest_id) then
+        jobs.set_failure(job.id, "nest_removed")
+        if has_carried_cargo(record) then spill_cargo(record) end
+        return_home(record)
+      end
+    end
+  end
+end
+
+function carriers.handle_depot_removed(depot_id, position, options)
   options = options or {}
   local data = state.get()
   local carrier_ids = {}
@@ -722,7 +725,7 @@ function carriers.handle_nest_removed(nest_id, position, options)
 
   for _, id in ipairs(carrier_ids) do
     local record = data.carriers[id]
-    if record and record.home_nest_id == nest_id then
+    if record and record.home_depot_id == depot_id then
       carriers.remove(id, {
         spill_cargo = true,
         return_carrier_item = true,
@@ -732,13 +735,10 @@ function carriers.handle_nest_removed(nest_id, position, options)
       })
     elseif record and record.job_id then
       local job = jobs.get(record.job_id)
-      if job and (job.source_nest_id == nest_id or job.destination_nest_id == nest_id or job.home_nest_id == nest_id) then
-        clear_job(record, "nest_removed")
-        if has_carried_cargo(record) and record.home_nest_id and nests.is_valid(nests.get(record.home_nest_id)) then
-          issue_command(record, record.home_nest_id, "returning")
-        else
-          set_idle(record, constants.ticks.idle_delay)
-        end
+      if job and job.home_depot_id == depot_id then
+        jobs.set_failure(job.id, "depot_removed")
+        if has_carried_cargo(record) then spill_cargo(record) end
+        carriers.remove(id, {return_carrier_item = true, item_position = position, destroy_entity = true})
       end
     end
   end
@@ -753,44 +753,34 @@ function carriers.validate()
 
   for _, id in ipairs(carrier_ids) do
     local record = data.carriers[id]
-    if record and valid(record.entity) then
+    if record and valid(record.entity) and record.home_depot_id and depots.is_valid(depots.get(record.home_depot_id)) then
       data.carrier_by_unit_number[record.unit_number] = id
       record.next_update_tick = game.tick
+      record.home_nest_id = nil
+      food.ensure_carrier_fields(record)
       normalise_cargo_slots(record)
       research.apply_to_carrier(record)
       enqueue(data, id)
     elseif record then
-      carriers.remove(id, {spill_cargo = true})
+      carriers.remove(id, {spill_cargo = true, return_carrier_item = true, destroy_entity = valid(record.entity)})
     end
   end
 end
 
-function carriers.wake_for_nest(nest_record)
-  if not nests.is_valid(nest_record) or not nest_record.carrier_ids then return end
-  local data = state.get()
-
-  for id in pairs(nest_record.carrier_ids) do
-    local record = data.carriers[id]
-    if record then
-      record.next_update_tick = game.tick
-    end
-  end
-end
-
-function carriers.count_for_nest(nest_id)
+function carriers.count_for_depot(depot_id)
   local count = 0
   for _, record in pairs(state.get().carriers) do
-    if record.home_nest_id == nest_id then
+    if record.home_depot_id == depot_id then
       count = count + 1
     end
   end
   return count
 end
 
-function carriers.active_for_nest(nest_id)
+function carriers.active_for_depot(depot_id)
   local count = 0
   for _, record in pairs(state.get().carriers) do
-    if record.home_nest_id == nest_id and record.state ~= "idle" and record.state ~= "waiting_with_cargo" then
+    if record.home_depot_id == depot_id and record.state ~= "idle" then
       count = count + 1
     end
   end

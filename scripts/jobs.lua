@@ -2,18 +2,55 @@ local state = require("scripts.state")
 
 local jobs = {}
 
-function jobs.create(source_nest_id, destination_nest_id, carrier_id, home_nest_id, generator)
+local function reservation_table(parent, nest_id)
+  if not nest_id then return nil end
+  parent[nest_id] = parent[nest_id] or {}
+  return parent[nest_id]
+end
+
+local function add_reservation(parent, nest_id, item_name, count)
+  if not nest_id or not item_name or not count or count == 0 then return end
+  local reservations = reservation_table(parent, nest_id)
+  reservations[item_name] = math.max(0, (reservations[item_name] or 0) + count)
+  if reservations[item_name] == 0 then
+    reservations[item_name] = nil
+  end
+end
+
+local function reserved_count(parent, nest_id, item_name)
+  local reservations = nest_id and parent[nest_id]
+  return reservations and reservations[item_name] or 0
+end
+
+local function reserve_job(job)
+  if not job.item_name or not job.requested_count or job.requested_count <= 0 then return end
+  local data = state.get()
+  add_reservation(data.supply_reservations, job.source_nest_id, job.item_name, job.requested_count)
+  add_reservation(data.request_reservations, job.destination_nest_id, job.item_name, job.requested_count)
+end
+
+local function release_job(job)
+  if not job.item_name or not job.requested_count or job.requested_count <= 0 then return end
+  local data = state.get()
+  add_reservation(data.supply_reservations, job.source_nest_id, job.item_name, -job.requested_count)
+  add_reservation(data.request_reservations, job.destination_nest_id, job.item_name, -job.requested_count)
+end
+
+function jobs.create(params)
   local data = state.get()
   local id = data.next_job_id
   data.next_job_id = id + 1
 
   local job = {
     id = id,
-    source_nest_id = source_nest_id,
-    destination_nest_id = destination_nest_id,
-    carrier_id = carrier_id,
-    home_nest_id = home_nest_id,
-    generator = generator or "fixed-route",
+    source_nest_id = params.source_nest_id,
+    destination_nest_id = params.destination_nest_id,
+    carrier_id = params.carrier_id,
+    home_depot_id = params.home_depot_id,
+    item_name = params.item_name,
+    requested_count = params.requested_count or 0,
+    picked_count = 0,
+    generator = params.generator or "logistics-network",
     state = "created",
     retry_count = 0,
     failure_reason = false,
@@ -22,18 +59,8 @@ function jobs.create(source_nest_id, destination_nest_id, carrier_id, home_nest_
   }
 
   data.jobs[id] = job
+  reserve_job(job)
   return job
-end
-
-function jobs.create_fixed_route(carrier_record, home_record)
-  if not home_record or not home_record.destination_nest_id then return nil end
-  return jobs.create(
-    home_record.id,
-    home_record.destination_nest_id,
-    carrier_record.id,
-    home_record.id,
-    "fixed-route"
-  )
 end
 
 function jobs.get(id)
@@ -54,6 +81,21 @@ function jobs.set_failure(id, reason)
   job.updated_tick = game.tick
 end
 
+function jobs.set_picked_count(id, count)
+  local job = jobs.get(id)
+  if not job then return end
+  job.picked_count = count or 0
+  job.updated_tick = game.tick
+end
+
+function jobs.supply_reserved_count(nest_id, item_name)
+  return reserved_count(state.get().supply_reservations, nest_id, item_name)
+end
+
+function jobs.request_reserved_count(nest_id, item_name)
+  return reserved_count(state.get().request_reservations, nest_id, item_name)
+end
+
 function jobs.complete(id, result)
   local data = state.get()
   local job = data.jobs[id]
@@ -63,6 +105,7 @@ function jobs.complete(id, result)
     job.failure_reason = result
   end
   job.updated_tick = game.tick
+  release_job(job)
   data.jobs[id] = nil
 end
 

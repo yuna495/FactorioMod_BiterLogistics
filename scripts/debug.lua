@@ -1,6 +1,7 @@
 local constants = require("constants")
 local state = require("scripts.state")
 local nests = require("scripts.nests")
+local depots = require("scripts.depots")
 local jobs = require("scripts.jobs")
 local research = require("scripts.research")
 
@@ -59,7 +60,7 @@ function debug.print_status(command)
   local print, player = output_for(command)
   research.rebuild_all(false)
 
-  print({"debug.biter-logistics-header", count_pairs(data.nests), count_pairs(data.carriers), game.tick})
+  print({"debug.biter-logistics-header", count_pairs(data.nests), count_pairs(data.depots), count_pairs(data.carriers), game.tick})
   if player then
     local effects = research.effects_for_force_name(player.force.name)
     print({
@@ -74,15 +75,29 @@ function debug.print_status(command)
   for id, record in pairs(data.nests) do
     if nests.is_valid(record)
       and (not player or record.surface_index == player.surface_index) then
-      local carriers = record.carrier_ids and count_pairs(record.carrier_ids) or 0
       print({
         "debug.biter-logistics-nest",
         id,
         record.display_name or "-",
-        record.destination_nest_id or "-",
+        record.mode or "-",
+        record.request_item or "-",
         tostring(nests.has_cargo(record)),
-        nests.count_carrier_items(record),
-        carriers
+        nests.cargo_slot_count(record)
+      })
+    end
+  end
+
+  for id, record in pairs(data.depots) do
+    if depots.is_valid(record)
+      and (not player or record.surface_index == player.surface_index) then
+      local carrier_count = record.carrier_ids and count_pairs(record.carrier_ids) or 0
+      print({
+        "debug.biter-logistics-depot",
+        id,
+        record.display_name or "-",
+        depots.count_carrier_items(record),
+        carrier_count,
+        depots.available_food_energy(record)
       })
     end
   end
@@ -97,13 +112,13 @@ function debug.print_status(command)
         "debug.biter-logistics-carrier",
         id,
         record.state or "-",
-        record.home_nest_id or "-",
+        record.home_depot_id or "-",
         job and (job.id .. "/" .. job.state) or "-",
         cargo_text(record),
         tostring(has_command),
         record.next_update_tick or "-",
         position_text(entity.position),
-        record.command_target_nest_id or "-",
+        record.command_target_id or "-",
         position_text(record.command_position)
       })
     end

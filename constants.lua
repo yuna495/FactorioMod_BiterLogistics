@@ -2,22 +2,31 @@ local constants = {}
 
 constants.nest_entity = "biter-logistics-nest"
 constants.nest_item = "biter-logistics-nest"
+constants.depot_entity = "biter-logistics-fuel-depot"
+constants.depot_item = "biter-logistics-fuel-depot"
 constants.carrier_unit = "biter-logistics-carrier-biter-unit"
 constants.carrier_item = "biter-logistics-carrier-biter"
+constants.biomass_item = "biter-logistics-biter-biomass"
 
-constants.slots = {
-  carrier = 1,
-  cargo_first = 2,
-  cargo_last = 11,
+constants.nest_slots = {
+  cargo_first = 1,
   cargo_count = 10,
   max_cargo_count = 40,
-  max_cargo_last = 41,
-  total = 11,
-  max_total = 41
+  total = 10,
+  max_total = 40
+}
+
+constants.depot_slots = {
+  carrier = 1,
+  food_first = 2,
+  food_count = 10,
+  total = 11
 }
 
 constants.research = {
   base = "biter-logistics",
+  biomass_cultivation = "biter-logistics-biomass-cultivation",
+  herbivorous_biters = "biter-logistics-herbivorous-biters",
   carrier_capacity_prefix = "biter-logistics-carrier-capacity-",
   carrier_capacity_max_level = 4,
   carrier_speed_prefix = "biter-logistics-carrier-speed-",
@@ -34,10 +43,37 @@ constants.research = {
   max_carrier_speed_multiplier = 3
 }
 
+constants.nest_modes = {
+  supply = "supply",
+  request = "request"
+}
+
+constants.food = {
+  carrier_capacity = 1000,
+  base_job_cost = 20,
+  cost_per_tile = 0.1,
+  values = {
+    [constants.biomass_item] = 100,
+    ["raw-fish"] = 80
+  },
+  herbivorous_values = {
+    wood = 20
+  },
+  space_age_values = {
+    yumako = 40,
+    jellynut = 60,
+    nutrients = 120
+  }
+}
+
 constants.ticks = {
   nest_update_interval = 30,
+  depot_update_interval = 30,
+  logistics_update_interval = 30,
   carrier_update_interval = 15,
   nests_per_update = 16,
+  depots_per_update = 16,
+  requests_per_update = 12,
   carriers_per_update = 32,
   idle_delay = 60,
   retry_delay = 120,
@@ -64,7 +100,8 @@ constants.gui = {
   name_flow = "biter_logistics_name_flow",
   name_field = "biter_logistics_nest_name",
   name_suffix_label = "biter_logistics_name_suffix",
-  destination_dropdown = "biter_logistics_destination"
+  mode_dropdown = "biter_logistics_mode",
+  request_item_button = "biter_logistics_request_item"
 }
 
 constants.commands = {

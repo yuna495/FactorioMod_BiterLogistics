@@ -23,7 +23,8 @@ local nest_capacity_technologies = {
 }
 
 local tracked_technologies = {
-  [constants.research.carrier_speed_leveled] = true
+  [constants.research.carrier_speed_leveled] = true,
+  [constants.research.herbivorous_biters] = true
 }
 
 for _, name in ipairs(capacity_technologies) do tracked_technologies[name] = true end
@@ -38,7 +39,8 @@ local function default_effects(force)
     nest_cargo_slots = constants.research.default_nest_cargo_slots,
     carrier_capacity_level = 0,
     carrier_speed_level = 0,
-    nest_capacity_level = 0
+    nest_capacity_level = 0,
+    herbivorous_biters = false
   }
 end
 
@@ -110,8 +112,10 @@ local function calculate_force_effects(force)
   effects.nest_cargo_slots = clamp(
     constants.research.default_nest_cargo_slots + effects.nest_capacity_level * 10,
     constants.research.default_nest_cargo_slots,
-    constants.slots.max_cargo_count
+    constants.nest_slots.max_cargo_count
   )
+
+  effects.herbivorous_biters = is_researched(force, constants.research.herbivorous_biters)
 
   return effects
 end
@@ -160,11 +164,11 @@ function research.apply_to_nest_entity(entity)
   if not entity or not entity.valid or entity.name ~= constants.nest_entity then return end
 
   local cargo_slots = research.nest_cargo_slots_for_force_name(entity.force.name)
-  local desired_total = constants.slots.carrier + cargo_slots
+  local desired_total = cargo_slots
   local current_total = entity.get_inventory_size_override(defines.inventory.chest)
   if current_total == desired_total then return end
 
-  local overflow = game.create_inventory(constants.slots.max_total)
+  local overflow = game.create_inventory(constants.nest_slots.max_total)
   entity.set_inventory_size_override(defines.inventory.chest, desired_total, overflow)
   spill_overflow(entity, overflow)
   overflow.destroy()
@@ -190,6 +194,12 @@ local function apply_to_force_runtime(force_name)
   for _, record in pairs(data.nests) do
     if record.entity and record.entity.valid and record.entity.force.name == force_name then
       research.apply_to_nest_entity(record.entity)
+    end
+  end
+
+  for _, record in pairs(data.depots or {}) do
+    if record.entity and record.entity.valid and record.entity.force.name == force_name then
+      record.force_name = record.entity.force.name
     end
   end
 end

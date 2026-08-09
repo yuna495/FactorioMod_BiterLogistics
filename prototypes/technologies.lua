@@ -35,6 +35,7 @@ local science = {
 
 local has_space_age = mods and mods["space-age"]
 local biter_icon = "__base__/graphics/icons/medium-biter.png"
+local biomass_icon = "__base__/graphics/icons/medium-biter.png"
 local nest_icon = has_space_age
   and "__space-age__/graphics/technology/captive-biter-spawner.png"
   or "__base__/graphics/icons/biter-spawner.png"
@@ -106,6 +107,10 @@ local logistics_tech = {
     },
     {
       type = "unlock-recipe",
+      recipe = constants.depot_item
+    },
+    {
+      type = "unlock-recipe",
       recipe = constants.carrier_item
     }
   },
@@ -121,14 +126,50 @@ local logistics_tech = {
 local capacity_icons = single_icon(biter_icon, biter_icon_size, biter_icon_scale)
 local speed_icons = single_icon(biter_icon, biter_icon_size, biter_icon_scale)
 local nest_capacity_icons = single_icon(nest_icon, nest_icon_size, nest_icon_scale)
+local biomass_icons = single_icon(biomass_icon, biter_icon_size, biter_icon_scale)
 
 local technologies = {logistics_tech}
+
+technologies[#technologies + 1] = {
+  type = "technology",
+  name = constants.research.biomass_cultivation,
+  icons = biomass_icons,
+  effects = {
+    {
+      type = "unlock-recipe",
+      recipe = constants.biomass_item
+    }
+  },
+  prerequisites = {constants.research.base, "chemical-science-pack"},
+  unit = {
+    count = 300,
+    ingredients = science.chemical,
+    time = 30
+  },
+  order = "c-k-a-b[biter-logistics-biomass-cultivation]"
+}
+
+technologies[#technologies + 1] = {
+  type = "technology",
+  name = constants.research.herbivorous_biters,
+  icons = speed_icons,
+  effects = {
+    nothing_effect("Carrier Biter food: wood", "__base__/graphics/icons/wood.png", 64)
+  },
+  prerequisites = {constants.research.base, "chemical-science-pack"},
+  unit = {
+    count = 250,
+    ingredients = science.chemical,
+    time = 30
+  },
+  order = "c-k-a-c[biter-logistics-herbivorous-biters]"
+}
 
 for level, spec in ipairs({
   {count = 150, time = 30, ingredients = science.red_green, prerequisites = {constants.research.base}},
   {count = 300, time = 30, ingredients = science.chemical, prerequisites = {constants.research.carrier_capacity_prefix .. "1", "chemical-science-pack"}},
   {count = 600, time = 30, ingredients = science.production, prerequisites = {constants.research.carrier_capacity_prefix .. "2", "production-science-pack"}},
-  {count = 1000, time = 60, ingredients = science.utility, prerequisites = {constants.research.carrier_capacity_prefix .. "3", "space-science-pack"}}
+  {count = 1000, time = 60, ingredients = science.utility, prerequisites = {constants.research.carrier_capacity_prefix .. "3", "utility-science-pack"}}
 }) do
   technologies[#technologies + 1] = technology(
     constants.research.carrier_capacity_prefix .. level,

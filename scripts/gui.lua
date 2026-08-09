@@ -1,7 +1,9 @@
 local constants = require("constants")
 local state = require("scripts.state")
 local nests = require("scripts.nests")
+local depots = require("scripts.depots")
 local carriers = require("scripts.carriers")
+local logistics = require("scripts.logistics")
 
 local gui = {}
 
@@ -13,24 +15,23 @@ local function root(player)
   return player.gui.relative[constants.gui.root] or player.gui.screen[constants.gui.root]
 end
 
+local function player_state(player_index)
+  local data = state.get()
+  data.players[player_index] = data.players[player_index] or {}
+  return data.players[player_index]
+end
+
 local function close(player)
   local relative_frame = player.gui.relative[constants.gui.root]
   if relative_frame then relative_frame.destroy() end
   local screen_frame = player.gui.screen[constants.gui.root]
   if screen_frame then screen_frame.destroy() end
-  local player_state = state.get().players[player.index]
-  if player_state then
-    player_state.open_nest_id = nil
-    player_state.destination_options = nil
+  local pstate = state.get().players[player.index]
+  if pstate then
+    pstate.open_type = nil
+    pstate.open_nest_id = nil
+    pstate.open_depot_id = nil
   end
-end
-
-local function destination_index(record, options)
-  if not record.destination_nest_id then return 1 end
-  for index, option in ipairs(options) do
-    if option.nest_id == record.destination_nest_id then return index end
-  end
-  return 1
 end
 
 local function update_name_suffix(player, record)
@@ -42,33 +43,76 @@ local function update_name_suffix(player, record)
   end
 end
 
-local function add_status(frame, nest_id)
-  local carrier_count = carriers.count_for_nest(nest_id)
-  local active_count = carriers.active_for_nest(nest_id)
-
-  frame.add{type = "label", caption = {"gui.biter-logistics-carrier-slot"}}
-  frame.add{type = "label", caption = {"gui.biter-logistics-cargo-slots", nests.cargo_slot_count(nests.get(nest_id))}}
-
-  local carrier_flow = frame.add{type = "flow", direction = "horizontal"}
-  carrier_flow.add{type = "label", caption = {"gui.biter-logistics-carriers"}}
-  carrier_flow.add{type = "label", caption = tostring(carrier_count)}
-
-  local status_flow = frame.add{type = "flow", direction = "horizontal"}
-  status_flow.add{type = "label", caption = {"gui.biter-logistics-status"}}
-  if carrier_count == 0 then
-    status_flow.add{type = "label", caption = {"gui.biter-logistics-status-no-carriers"}}
-  else
-    status_flow.add{type = "label", caption = {"gui.biter-logistics-status-carriers", carrier_count, active_count}}
-  end
+local function add_name(frame, text, suffix)
+  local name_flow = frame.add{
+    type = "flow",
+    name = constants.gui.name_flow,
+    direction = "horizontal"
+  }
+  name_flow.add{type = "label", caption = {"gui.biter-logistics-name"}}
+  name_flow.add{
+    type = "textfield",
+    name = constants.gui.name_field,
+    text = text or "",
+    icon_selector = true
+  }
+  name_flow.add{
+    type = "label",
+    name = constants.gui.name_suffix_label,
+    caption = suffix or ""
+  }
 end
 
-function gui.open(player, record)
+local function add_nest_status(frame, record)
+  frame.add{type = "label", caption = {"gui.biter-logistics-cargo-slots", nests.cargo_slot_count(record)}}
+  local mode = record.mode == constants.nest_modes.request
+    and {"gui.biter-logistics-mode-request"}
+    or {"gui.biter-logistics-mode-supply"}
+  frame.add{type = "label", caption = {"gui.biter-logistics-status-nest", mode}}
+end
+
+local function add_depot_status(frame, record)
+  local carrier_count = carriers.count_for_depot(record.id)
+  local active_count = carriers.active_for_depot(record.id)
+
+  frame.add{type = "label", caption = {"gui.biter-logistics-depot-carrier-slot"}}
+  frame.add{type = "label", caption = {"gui.biter-logistics-depot-food-slots", constants.depot_slots.food_count}}
+  frame.add{type = "label", caption = {"gui.biter-logistics-status-carriers", carrier_count, active_count}}
+  frame.add{type = "label", caption = {"gui.biter-logistics-food-energy", depots.available_food_energy(record)}}
+end
+
+local function add_nest_controls(frame, record)
+  local mode_flow = frame.add{type = "flow", direction = "horizontal"}
+  mode_flow.add{type = "label", caption = {"gui.biter-logistics-mode"}}
+  mode_flow.add{
+    type = "drop-down",
+    name = constants.gui.mode_dropdown,
+    items = {
+      {"gui.biter-logistics-mode-supply"},
+      {"gui.biter-logistics-mode-request"}
+    },
+    selected_index = record.mode == constants.nest_modes.request and 2 or 1
+  }
+
+  local request_flow = frame.add{type = "flow", direction = "horizontal"}
+  request_flow.add{type = "label", caption = {"gui.biter-logistics-request-item"}}
+  local button = request_flow.add{
+    type = "choose-elem-button",
+    name = constants.gui.request_item_button,
+    elem_type = "item",
+    style = "slot_button"
+  }
+  button.elem_value = record.request_item
+  request_flow.visible = record.mode == constants.nest_modes.request
+end
+
+function gui.open_nest(player, record)
   if not record then return end
   close(player)
 
-  local data = state.get()
-  local player_state = data.players[player.index] or {}
-  data.players[player.index] = player_state
+  local pstate = player_state(player.index)
+  pstate.open_type = "nest"
+  pstate.open_nest_id = record.id
 
   local frame = player.gui.relative.add{
     type = "frame",
@@ -82,59 +126,68 @@ function gui.open(player, record)
     }
   }
 
-  player_state.open_nest_id = record.id
+  add_name(frame, record.display_name, nests.duplicate_suffix_caption(record))
+  add_nest_controls(frame, record)
+  add_nest_status(frame, record)
+end
 
-  local name_flow = frame.add{
-    type = "flow",
-    name = constants.gui.name_flow,
-    direction = "horizontal"
-  }
-  name_flow.add{type = "label", caption = {"gui.biter-logistics-name"}}
-  name_flow.add{
-    type = "textfield",
-    name = constants.gui.name_field,
-    text = record.display_name or "",
-    icon_selector = true
-  }
-  name_flow.add{
-    type = "label",
-    name = constants.gui.name_suffix_label,
-    caption = nests.duplicate_suffix_caption(record)
-  }
+function gui.open_depot(player, record)
+  if not record then return end
+  close(player)
 
-  local options = nests.destination_options(record.id)
-  player_state.destination_options = options
-  local items = {}
-  for index, option in ipairs(options) do
-    items[index] = option.caption
-  end
+  local pstate = player_state(player.index)
+  pstate.open_type = "depot"
+  pstate.open_depot_id = record.id
 
-  local destination_flow = frame.add{type = "flow", direction = "horizontal"}
-  destination_flow.add{type = "label", caption = {"gui.biter-logistics-destination"}}
-  destination_flow.add{
-    type = "drop-down",
-    name = constants.gui.destination_dropdown,
-    items = items,
-    selected_index = destination_index(record, options)
+  local frame = player.gui.relative.add{
+    type = "frame",
+    name = constants.gui.root,
+    caption = {"gui.biter-logistics-depot-title"},
+    direction = "vertical",
+    anchor = {
+      gui = defines.relative_gui_type.container_gui,
+      position = defines.relative_gui_position.right,
+      names = {constants.depot_entity}
+    }
   }
 
-  add_status(frame, record.id)
+  add_name(frame, record.display_name)
+  add_depot_status(frame, record)
 end
 
 function gui.refresh(player)
-  local player_state = state.get().players[player.index]
-  local record = player_state and player_state.open_nest_id and nests.get(player_state.open_nest_id)
-  if record and nests.is_valid(record) then
-    gui.open(player, record)
-  else
-    close(player)
+  local pstate = state.get().players[player.index]
+  if not pstate then return end
+  if pstate.open_type == "nest" then
+    local record = pstate.open_nest_id and nests.get(pstate.open_nest_id)
+    if record and nests.is_valid(record) then
+      gui.open_nest(player, record)
+    else
+      close(player)
+    end
+  elseif pstate.open_type == "depot" then
+    local record = pstate.open_depot_id and depots.get(pstate.open_depot_id)
+    if record and depots.is_valid(record) then
+      gui.open_depot(player, record)
+    else
+      close(player)
+    end
   end
 end
 
 function gui.close_nest(nest_id)
   for _, player in pairs(game.players) do
-    local player_state = state.get().players[player.index]
-    if player_state and player_state.open_nest_id == nest_id then
+    local pstate = state.get().players[player.index]
+    if pstate and pstate.open_type == "nest" and pstate.open_nest_id == nest_id then
+      close(player)
+    end
+  end
+end
+
+function gui.close_depot(depot_id)
+  for _, player in pairs(game.players) do
+    local pstate = state.get().players[player.index]
+    if pstate and pstate.open_type == "depot" and pstate.open_depot_id == depot_id then
       close(player)
     end
   end
@@ -143,9 +196,14 @@ end
 function gui.on_opened(event)
   local player = game.get_player(event.player_index)
   if not player or not event.entity or not event.entity.valid then return end
-  local record = nests.get_by_entity(event.entity)
-  if record then
-    gui.open(player, record)
+  local nest_record = nests.get_by_entity(event.entity)
+  if nest_record then
+    gui.open_nest(player, nest_record)
+    return
+  end
+  local depot_record = depots.get_by_entity(event.entity)
+  if depot_record then
+    gui.open_depot(player, depot_record)
   end
 end
 
@@ -158,7 +216,8 @@ function gui.on_closed(event)
     return
   end
 
-  if event.entity and event.entity.valid and event.entity.name == constants.nest_entity then
+  if event.entity and event.entity.valid
+    and (event.entity.name == constants.nest_entity or event.entity.name == constants.depot_entity) then
     close(player)
   end
 end
@@ -166,22 +225,39 @@ end
 function gui.on_text_changed(event)
   if not valid(event.element) or event.element.name ~= constants.gui.name_field then return end
   local player = game.get_player(event.player_index)
-  local player_state = state.get().players[event.player_index]
-  if not player or not player_state or not player_state.open_nest_id then return end
-  nests.set_display_name(player_state.open_nest_id, event.element.text)
-  update_name_suffix(player, nests.get(player_state.open_nest_id))
+  local pstate = state.get().players[event.player_index]
+  if not player or not pstate then return end
+
+  if pstate.open_type == "nest" and pstate.open_nest_id then
+    nests.set_display_name(pstate.open_nest_id, event.element.text)
+    update_name_suffix(player, nests.get(pstate.open_nest_id))
+  elseif pstate.open_type == "depot" and pstate.open_depot_id then
+    depots.set_display_name(pstate.open_depot_id, event.element.text)
+  end
 end
 
 function gui.on_selection_state_changed(event)
-  if not valid(event.element) or event.element.name ~= constants.gui.destination_dropdown then return end
+  if not valid(event.element) or event.element.name ~= constants.gui.mode_dropdown then return end
   local player = game.get_player(event.player_index)
-  local player_state = state.get().players[event.player_index]
-  if not player or not player_state or not player_state.open_nest_id then return end
+  local pstate = state.get().players[event.player_index]
+  if not player or not pstate or pstate.open_type ~= "nest" or not pstate.open_nest_id then return end
 
-  local option = player_state.destination_options and player_state.destination_options[event.element.selected_index]
-  if not option then return end
-  nests.set_destination(player_state.open_nest_id, option.nest_id)
+  local mode = event.element.selected_index == 2 and constants.nest_modes.request or constants.nest_modes.supply
+  nests.set_mode(pstate.open_nest_id, mode)
+  if mode == constants.nest_modes.request then
+    logistics.enqueue_request(pstate.open_nest_id)
+  end
   gui.refresh(player)
+end
+
+function gui.on_elem_changed(event)
+  if not valid(event.element) or event.element.name ~= constants.gui.request_item_button then return end
+  local player = game.get_player(event.player_index)
+  local pstate = state.get().players[event.player_index]
+  if not player or not pstate or pstate.open_type ~= "nest" or not pstate.open_nest_id then return end
+
+  nests.set_request_item(pstate.open_nest_id, event.element.elem_value)
+  logistics.enqueue_request(pstate.open_nest_id)
 end
 
 return gui

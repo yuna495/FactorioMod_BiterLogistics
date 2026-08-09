@@ -1,18 +1,22 @@
 local constants = require("constants")
 local state = require("scripts.state")
 local nests = require("scripts.nests")
+local depots = require("scripts.depots")
 local carriers = require("scripts.carriers")
 local cleanup = require("scripts.cleanup")
 local gui = require("scripts.gui")
 local debug = require("scripts.debug")
 local research = require("scripts.research")
+local logistics = require("scripts.logistics")
 
 local function initialise()
   state.get()
   research.rebuild_all(false)
   nests.rescan()
+  depots.rescan()
   carriers.validate()
   research.rebuild_all(true)
+  logistics.enqueue_all_requests()
 end
 
 script.on_init(initialise)
@@ -42,19 +46,32 @@ end
 script.on_event(defines.events.on_entity_cloned, cleanup.on_entity_cloned)
 script.on_event(defines.events.on_object_destroyed, cleanup.on_object_destroyed)
 script.on_event(defines.events.on_ai_command_completed, carriers.on_ai_command_completed)
-script.on_event(defines.events.on_research_finished, research.on_research_changed)
-if defines.events.on_research_reversed then
-  script.on_event(defines.events.on_research_reversed, research.on_research_changed)
+local function on_research_changed(event)
+  research.on_research_changed(event)
+  logistics.enqueue_all_requests()
 end
-script.on_event(defines.events.on_technology_effects_reset, research.on_technology_effects_reset)
+
+local function on_technology_effects_reset(event)
+  research.on_technology_effects_reset(event)
+  logistics.enqueue_all_requests()
+end
+
+script.on_event(defines.events.on_research_finished, on_research_changed)
+if defines.events.on_research_reversed then
+  script.on_event(defines.events.on_research_reversed, on_research_changed)
+end
+script.on_event(defines.events.on_technology_effects_reset, on_technology_effects_reset)
 
 script.on_event(defines.events.on_gui_opened, gui.on_opened)
 script.on_event(defines.events.on_gui_closed, gui.on_closed)
 script.on_event(defines.events.on_gui_text_changed, gui.on_text_changed)
 script.on_event(defines.events.on_gui_selection_state_changed, gui.on_selection_state_changed)
+script.on_event(defines.events.on_gui_elem_changed, gui.on_elem_changed)
 
 script.on_nth_tick(constants.ticks.nest_update_interval, function()
-  nests.process_batch(carriers.spawn_from_nest, carriers.wake_for_nest)
+  nests.process_batch(logistics.enqueue_request)
+  depots.process_batch(carriers.spawn_from_depot, logistics.enqueue_all_requests)
+  logistics.process_batch(carriers.assign_job)
 end)
 
 script.on_nth_tick(constants.ticks.carrier_update_interval, function()
