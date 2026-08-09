@@ -403,6 +403,15 @@ local function update_record(record)
       return
     end
 
+    if not nests.has_cargo(home) then
+      if is_near(record, home) then
+        set_idle(record, constants.ticks.idle_delay)
+      elseif not issue_command(record, home.id, "returning") then
+        record.next_update_tick = game.tick + constants.ticks.retry_delay
+      end
+      return
+    end
+
     local job = jobs.create_fixed_route(record, home)
     if not job then
       record.next_update_tick = game.tick + constants.ticks.idle_delay
