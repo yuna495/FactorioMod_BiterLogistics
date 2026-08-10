@@ -3,6 +3,7 @@ local state = require("scripts.state")
 local food = require("scripts.food")
 local research = require("scripts.research")
 local visuals = require("scripts.visuals")
+local indexes = require("scripts.indexes")
 
 local depots = {}
 
@@ -81,6 +82,7 @@ function depots.register(entity)
   record.surface_index = entity.surface_index
   record.position = copy_position(entity.position)
   record.carrier_ids = record.carrier_ids or {}
+  indexes.register_depot(record)
 
   depots.configure_inventory(entity)
   visuals.update_depot(record)
@@ -131,20 +133,43 @@ function depots.count_carrier_items(record)
   return 0
 end
 
-function depots.assigned_carrier_count(record)
+local function carrier_for_depot(data, record, id)
+  local carrier = data.carriers[id]
+  if carrier and carrier.home_depot_id == record.id and valid(carrier.entity) then
+    return carrier
+  end
+  record.carrier_ids[id] = nil
+  return nil
+end
+
+local function count_depot_carriers(record, predicate)
   if not record then return 0 end
   local data = state.get()
   local count = 0
   record.carrier_ids = record.carrier_ids or {}
   for id in pairs(record.carrier_ids) do
-    local carrier = data.carriers[id]
-    if carrier and carrier.home_depot_id == record.id and carrier.entity and carrier.entity.valid then
+    local carrier = carrier_for_depot(data, record, id)
+    if carrier and (not predicate or predicate(carrier)) then
       count = count + 1
-    else
-      record.carrier_ids[id] = nil
     end
   end
   return count
+end
+
+function depots.assigned_carrier_count(record)
+  return count_depot_carriers(record)
+end
+
+function depots.active_carrier_count(record)
+  return count_depot_carriers(record, function(carrier)
+    return carrier.state ~= "idle"
+  end)
+end
+
+function depots.idle_carrier_count(record)
+  return count_depot_carriers(record, function(carrier)
+    return carrier.state == "idle" and not carrier.job_id
+  end)
 end
 
 function depots.carrier_capacity(record)
@@ -257,9 +282,10 @@ end
 function depots.find_idle_carrier(record)
   if not depots.is_valid(record) then return nil end
   local data = state.get()
+  record.carrier_ids = record.carrier_ids or {}
   for id in pairs(record.carrier_ids or {}) do
-    local carrier = data.carriers[id]
-    if carrier and carrier.state == "idle" and carrier.entity and carrier.entity.valid and not carrier.job_id then
+    local carrier = carrier_for_depot(data, record, id)
+    if carrier and carrier.state == "idle" and not carrier.job_id then
       food.ensure_carrier_fields(carrier)
       return carrier
     end
@@ -279,6 +305,7 @@ function depots.remove(id)
     data.destroy_registrations[record.destroy_registration_number] = nil
   end
 
+  indexes.unregister_depot(record)
   data.depots[id] = nil
   visuals.destroy(record)
   dequeue(data, id)
@@ -312,6 +339,7 @@ end
 
 function depots.rescan()
   local data = state.get()
+  indexes.clear_depots()
   for _, surface in pairs(game.surfaces) do
     for _, entity in pairs(surface.find_entities_filtered{name = constants.depot_entity}) do
       depots.register(entity)
@@ -320,6 +348,7 @@ function depots.rescan()
 
   for id, record in pairs(data.depots) do
     if depots.is_valid(record) then
+      indexes.register_depot(record)
       depots.configure_inventory(record.entity)
       enqueue(data, id)
     else

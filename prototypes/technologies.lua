@@ -85,6 +85,14 @@ local function technology(name, icons, prerequisites, count, ingredients, time, 
   }
 end
 
+local effect_descriptions = {
+  carrier_food = {"modifier-description.biter-logistics-carrier-food", "[item=wood]"},
+  carrier_capacity = {"modifier-description.biter-logistics-carrier-capacity", "1"},
+  carrier_speed_20 = {"modifier-description.biter-logistics-carrier-speed", "20"},
+  carrier_speed_10 = {"modifier-description.biter-logistics-carrier-speed", "10"},
+  depot_capacity = {"modifier-description.biter-logistics-depot-capacity", "1"}
+}
+
 local logistics_tech = {
   type = "technology",
   name = constants.research.base,
@@ -146,7 +154,7 @@ technologies[#technologies + 1] = {
   name = constants.research.herbivorous_biters,
   icons = herbivorous_icons,
   effects = {
-    nothing_effect("Carrier Biter food: wood", technology_icons.herbivorous_biters)
+    nothing_effect(effect_descriptions.carrier_food, technology_icons.herbivorous_biters)
   },
   prerequisites = {constants.research.base, "chemical-science-pack"},
   unit = {
@@ -170,7 +178,7 @@ for level, spec in ipairs({
     spec.count,
     spec.ingredients,
     spec.time,
-    "Carrier Biter cargo capacity: +1 stack",
+    effect_descriptions.carrier_capacity,
     technology_icons.carrier_capacity,
     technology_icon_size
   )
@@ -188,7 +196,7 @@ for level, spec in ipairs({
     spec.count,
     spec.ingredients,
     spec.time,
-    "Carrier Biter speed: +20%",
+    effect_descriptions.carrier_speed_20,
     technology_icons.carrier_speed,
     technology_icon_size
   )
@@ -199,7 +207,7 @@ technologies[#technologies + 1] = {
   name = constants.research.carrier_speed_leveled,
   icons = speed_icons,
   effects = {
-    nothing_effect("Carrier Biter speed: +10%", technology_icons.carrier_speed)
+    nothing_effect(effect_descriptions.carrier_speed_10, technology_icons.carrier_speed)
   },
   prerequisites = {constants.research.carrier_speed_prefix .. "3", "space-science-pack"},
   unit = {
@@ -224,7 +232,7 @@ for level, spec in ipairs({
     spec.count,
     spec.ingredients,
     spec.time,
-    "Logistics Nest cargo slots: " .. spec.slots,
+    {"modifier-description.biter-logistics-nest-cargo-slots", tostring(spec.slots)},
     technology_icons.nest_capacity,
     technology_icon_size
   )
@@ -244,7 +252,7 @@ for level, spec in ipairs({
     spec.count,
     spec.ingredients,
     spec.time,
-    "Biter Fuel Depot activity radius: " .. spec.radius .. " tiles",
+    {"modifier-description.biter-logistics-depot-range", tostring(spec.radius)},
     technology_icons.depot_range,
     technology_icon_size
   )
@@ -263,7 +271,7 @@ for level, spec in ipairs({
     spec.count,
     spec.ingredients,
     spec.time,
-    "Maximum Carrier Biters per Fuel Depot: +1",
+    effect_descriptions.depot_capacity,
     technology_icons.depot_capacity,
     technology_icon_size
   )

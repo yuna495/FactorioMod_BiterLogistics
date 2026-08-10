@@ -7,6 +7,7 @@ local research = require("scripts.research")
 local food = require("scripts.food")
 local networks = require("scripts.networks")
 local diagnostics = require("scripts.diagnostics")
+local indexes = require("scripts.indexes")
 
 local logistics = {}
 
@@ -55,6 +56,9 @@ end
 
 local function find_delivery_candidate(request, item_name)
   local data = state.get()
+  local scoped_nest_ids = indexes.nest_ids(request.force_name, request.surface_index)
+  local scoped_depot_ids = indexes.depot_ids(request.force_name, request.surface_index)
+  local available_cache = {}
   local best_source = nil
   local best_depot = nil
   local best_carrier = nil
@@ -65,26 +69,45 @@ local function find_delivery_candidate(request, item_name)
   local has_idle_carrier = false
   local food_shortage_depot = nil
 
-  for _, source in pairs(data.nests) do
-    if source.id ~= request.id
+  local function available_supply(source)
+    if available_cache[source.id] == nil then
+      available_cache[source.id] = nests.available_supply_count(source, item_name)
+    end
+    return available_cache[source.id]
+  end
+
+  for source_id in pairs(scoped_nest_ids) do
+    local source = data.nests[source_id]
+    if source
+      and source.id ~= request.id
       and source.mode == constants.nest_modes.supply
       and nests.is_valid(source)
-      and networks.same_force_surface(request, source) then
-      local available = nests.available_supply_count(source, item_name)
-      if available > 0 then
-        has_supply = true
-        for _, depot in pairs(data.depots) do
-          if depots.is_valid(depot)
-            and networks.same_force_surface(request, depot)
-            and networks.depot_covers_nest(depot, source)
-            and networks.depot_covers_nest(depot, request) then
-            has_ranged_supply = true
-            local carrier = depots.find_idle_carrier(depot)
-            local required_food = food.estimate_job_cost(depot, source, request)
-            if carrier then
-              has_idle_carrier = true
-              if required_food <= carrier.food_capacity
-                and (carrier.food_energy >= required_food or depots.available_food_energy(depot) + carrier.food_energy >= required_food) then
+      and available_supply(source) > 0 then
+      has_supply = true
+      break
+    end
+  end
+
+  for depot_id in pairs(scoped_depot_ids) do
+    local depot = data.depots[depot_id]
+    if depots.is_valid(depot) and networks.depot_covers_nest(depot, request) then
+      local carrier = depots.find_idle_carrier(depot)
+      local depot_food_energy = nil
+      for source_id in pairs(scoped_nest_ids) do
+        local source = data.nests[source_id]
+        if source
+          and source.id ~= request.id
+          and source.mode == constants.nest_modes.supply
+          and nests.is_valid(source)
+          and networks.depot_covers_nest(depot, source)
+          and available_supply(source) > 0 then
+          has_ranged_supply = true
+          local required_food = food.estimate_job_cost(depot, source, request)
+          if carrier then
+            has_idle_carrier = true
+            if required_food <= carrier.food_capacity then
+              depot_food_energy = depot_food_energy or depots.available_food_energy(depot)
+              if carrier.food_energy >= required_food or depot_food_energy + carrier.food_energy >= required_food then
                 local score = networks.route_distance(depot, source, request)
                 if better_candidate(score, source, depot, best_score, best_source, best_depot) then
                   best_source = source
@@ -96,6 +119,8 @@ local function find_delivery_candidate(request, item_name)
               else
                 food_shortage_depot = food_shortage_depot or depot
               end
+            else
+              food_shortage_depot = food_shortage_depot or depot
             end
           end
         end

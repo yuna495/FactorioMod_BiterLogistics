@@ -89,6 +89,12 @@ local function migrate(data)
     data.diagnostics.last_messages = data.diagnostics.last_messages or {}
     data.schema_version = 8
   end
+
+  if data.schema_version < 9 then
+    data.nests_by_force_surface = {}
+    data.depots_by_force_surface = {}
+    data.schema_version = 9
+  end
 end
 
 function state.get()
@@ -103,11 +109,13 @@ function state.get()
 
   ensure_table(data, "nests")
   ensure_table(data, "nest_by_unit_number")
+  ensure_table(data, "nests_by_force_surface")
   ensure_table(data, "nest_queue")
   ensure_table(data, "nest_queued")
 
   ensure_table(data, "depots")
   ensure_table(data, "depot_by_unit_number")
+  ensure_table(data, "depots_by_force_surface")
   ensure_table(data, "depot_queue")
   ensure_table(data, "depot_queued")
 

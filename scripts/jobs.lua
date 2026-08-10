@@ -192,6 +192,22 @@ function jobs.complete(id, result)
   data.jobs[id] = nil
 end
 
+function jobs.cancel_for_nest(nest_id, reason)
+  if not nest_id then return end
+  local data = state.get()
+  local job_ids = {}
+
+  for id, job in pairs(data.jobs) do
+    if job.source_nest_id == nest_id or job.destination_nest_id == nest_id then
+      job_ids[#job_ids + 1] = id
+    end
+  end
+
+  for _, id in ipairs(job_ids) do
+    jobs.complete(id, reason or "nest_removed")
+  end
+end
+
 function jobs.cleanup_orphaned()
   local data = state.get()
   local orphaned = {}

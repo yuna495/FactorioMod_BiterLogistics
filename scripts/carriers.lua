@@ -820,24 +820,4 @@ function carriers.validate()
   end
 end
 
-function carriers.count_for_depot(depot_id)
-  local count = 0
-  for _, record in pairs(state.get().carriers) do
-    if record.home_depot_id == depot_id and record.entity and record.entity.valid then
-      count = count + 1
-    end
-  end
-  return count
-end
-
-function carriers.active_for_depot(depot_id)
-  local count = 0
-  for _, record in pairs(state.get().carriers) do
-    if record.home_depot_id == depot_id and record.entity and record.entity.valid and record.state ~= "idle" then
-      count = count + 1
-    end
-  end
-  return count
-end
-
 return carriers

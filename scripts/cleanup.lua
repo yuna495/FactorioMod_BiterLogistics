@@ -3,6 +3,7 @@ local state = require("scripts.state")
 local nests = require("scripts.nests")
 local depots = require("scripts.depots")
 local carriers = require("scripts.carriers")
+local jobs = require("scripts.jobs")
 local gui = require("scripts.gui")
 
 local cleanup = {}
@@ -33,6 +34,7 @@ function cleanup.on_removed(event)
     if not record then return end
     local position = valid(entity) and entity.position or record.position
     carriers.handle_nest_removed(record.id, position, {player_index = event.player_index})
+    jobs.cancel_for_nest(record.id, "nest_removed")
     gui.close_nest(record.id)
     nests.remove(record.id)
     return
@@ -71,6 +73,7 @@ function cleanup.on_object_destroyed(event)
     local record = nests.get(registration.id)
     if not record then return end
     carriers.handle_nest_removed(record.id, record.position)
+    jobs.cancel_for_nest(record.id, "nest_removed")
     gui.close_nest(record.id)
     nests.remove(record.id)
     return

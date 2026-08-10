@@ -3,6 +3,7 @@ local state = require("scripts.state")
 local research = require("scripts.research")
 local jobs = require("scripts.jobs")
 local visuals = require("scripts.visuals")
+local indexes = require("scripts.indexes")
 
 local nests = {}
 
@@ -158,6 +159,7 @@ function nests.register(entity)
   record.position = copy_position(entity.position)
   record.mode = record.mode or constants.nest_modes.supply
   record.request_quality = record.request_quality or "normal"
+  indexes.register_nest(record)
 
   nests.configure_inventory(entity)
   visuals.update_nest(record)
@@ -389,9 +391,8 @@ function nests.remove(id)
     data.destroy_registrations[record.destroy_registration_number] = nil
   end
 
-  data.supply_reservations[id] = nil
-  data.request_reservations[id] = nil
   data.request_queued[id] = nil
+  indexes.unregister_nest(record)
   visuals.destroy(record)
   data.nests[id] = nil
   dequeue(data, id)
@@ -426,6 +427,7 @@ end
 
 function nests.rescan()
   local data = state.get()
+  indexes.clear_nests()
   for _, surface in pairs(game.surfaces) do
     for _, entity in pairs(surface.find_entities_filtered{name = constants.nest_entity}) do
       nests.register(entity)
@@ -434,6 +436,7 @@ function nests.rescan()
 
   for id, record in pairs(data.nests) do
     if nests.is_valid(record) then
+      indexes.register_nest(record)
       nests.configure_inventory(record.entity)
       enqueue(data, id)
     else
