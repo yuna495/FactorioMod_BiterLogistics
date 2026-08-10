@@ -15,6 +15,11 @@ local function request_key(nest_id, item_name)
   return tostring(nest_id or "-") .. "|" .. tostring(item_name or "-")
 end
 
+local function copy_position(position)
+  if not position then return nil end
+  return {x = position.x, y = position.y}
+end
+
 local function entry_key(entry)
   if type(entry) == "table" then
     return entry.key or request_key(entry.nest_id, entry.item_name)
@@ -42,6 +47,20 @@ local function dequeue_current(data, index)
     data.request_cursor = math.max(data.request_cursor - 1, 0)
   end
   return entry
+end
+
+local function remove_request_entry(data, key)
+  if not key then return end
+  for index = #data.request_queue, 1, -1 do
+    if entry_key(data.request_queue[index]) == key then
+      table.remove(data.request_queue, index)
+      if data.request_cursor >= index then
+        data.request_cursor = math.max(data.request_cursor - 1, 0)
+      end
+      break
+    end
+  end
+  data.request_queued[key] = nil
 end
 
 local function stack_size(item_name)
@@ -83,7 +102,41 @@ local function better_candidate(score, source, depot, best_score, best_source, b
   return best_source and source.id < best_source.id
 end
 
-local function find_delivery_candidate(request, item_name)
+local function origin_for_depot(depot, options)
+  if options and options.origin_position then
+    return {
+      position = copy_position(options.origin_position),
+      force_name = depot.force_name,
+      surface_index = depot.surface_index
+    }
+  end
+  return depot
+end
+
+local function candidate_carrier_for_depot(depot, options)
+  if options and options.carrier then
+    local carrier = options.carrier
+    if not carrier.entity or not carrier.entity.valid then return nil end
+    if carrier.job_id then return nil end
+    if carrier.state ~= "idle" then return nil end
+    if carrier.home_depot_id ~= depot.id then return nil end
+    if carrier.force_name ~= depot.force_name or carrier.surface_index ~= depot.surface_index then return nil end
+    food.ensure_carrier_fields(carrier)
+    return carrier
+  end
+
+  return depots.find_idle_carrier(depot)
+end
+
+local function depot_food_can_cover(depot, carrier, required_food, allow_depot_food, depot_food_energy)
+  if carrier.food_energy >= required_food then return true, depot_food_energy end
+  if not allow_depot_food then return false, depot_food_energy end
+  depot_food_energy = depot_food_energy or depots.available_food_energy(depot)
+  return depot_food_energy + carrier.food_energy >= required_food, depot_food_energy
+end
+
+local function find_delivery_candidate(request, item_name, options)
+  options = options or {}
   local data = state.get()
   local scoped_nest_ids = indexes.nest_ids(request.force_name, request.surface_index)
   local scoped_depot_ids = indexes.depot_ids(request.force_name, request.surface_index)
@@ -91,12 +144,13 @@ local function find_delivery_candidate(request, item_name)
   local best_source = nil
   local best_depot = nil
   local best_carrier = nil
-  local best_required_food = nil
+  local best_food_plan = nil
   local best_score = nil
   local has_supply = false
   local has_ranged_supply = false
   local has_idle_carrier = false
   local food_shortage_depot = nil
+  local allow_depot_food = options.allow_depot_food ~= false
 
   local function available_supply(source)
     if available_cache[source.id] == nil then
@@ -117,11 +171,11 @@ local function find_delivery_candidate(request, item_name)
     end
   end
 
-  for depot_id in pairs(scoped_depot_ids) do
-    local depot = data.depots[depot_id]
+  local function evaluate_depot(depot)
     if depots.is_valid(depot) and networks.depot_covers_nest(depot, request) then
-      local carrier = depots.find_idle_carrier(depot)
+      local carrier = candidate_carrier_for_depot(depot, options)
       local depot_food_energy = nil
+      local origin = origin_for_depot(depot, options)
       for source_id in pairs(scoped_nest_ids) do
         local source = data.nests[source_id]
         if source
@@ -131,18 +185,25 @@ local function find_delivery_candidate(request, item_name)
           and networks.depot_covers_nest(depot, source)
           and available_supply(source) > 0 then
           has_ranged_supply = true
-          local required_food = food.estimate_job_cost(depot, source, request)
+          local food_plan = food.estimate_delivery_plan(origin, source, request, depot)
           if carrier then
             has_idle_carrier = true
-            if required_food <= carrier.food_capacity then
-              depot_food_energy = depot_food_energy or depots.available_food_energy(depot)
-              if carrier.food_energy >= required_food or depot_food_energy + carrier.food_energy >= required_food then
-                local score = networks.route_distance(depot, source, request)
+            if food_plan.required_food <= carrier.food_capacity then
+              local can_cover
+              can_cover, depot_food_energy = depot_food_can_cover(
+                depot,
+                carrier,
+                food_plan.required_food,
+                allow_depot_food,
+                depot_food_energy
+              )
+              if can_cover then
+                local score = networks.delivery_distance(origin, source, request)
                 if better_candidate(score, source, depot, best_score, best_source, best_depot) then
                   best_source = source
                   best_depot = depot
                   best_carrier = carrier
-                  best_required_food = required_food
+                  best_food_plan = food_plan
                   best_score = score
                 end
               else
@@ -154,6 +215,14 @@ local function find_delivery_candidate(request, item_name)
           end
         end
       end
+    end
+  end
+
+  if options.home_depot then
+    evaluate_depot(options.home_depot)
+  else
+    for depot_id in pairs(scoped_depot_ids) do
+      evaluate_depot(data.depots[depot_id])
     end
   end
 
@@ -170,7 +239,7 @@ local function find_delivery_candidate(request, item_name)
     end
   end
 
-  return best_source, best_depot, best_carrier, best_required_food, failure, food_shortage_depot
+  return best_source, best_depot, best_carrier, best_food_plan, failure, food_shortage_depot, best_score
 end
 
 local function normalise_request_entry(entry)
@@ -218,7 +287,7 @@ local function process_request(entry, assign_callback)
     return
   end
 
-  local source, depot, carrier, required_food, failure, failure_depot = find_delivery_candidate(request, item_name)
+  local source, depot, carrier, food_plan, failure, failure_depot = find_delivery_candidate(request, item_name)
   if not source or not depot or not carrier then
     if failure == "no_supply" then
       diagnostics.no_supply(request, item_name)
@@ -239,7 +308,7 @@ local function process_request(entry, assign_callback)
     return
   end
 
-  if carrier.food_energy < required_food and not depots.consume_food(depot, carrier, required_food) then
+  if carrier.food_energy < food_plan.required_food and not depots.consume_food(depot, carrier, food_plan.required_food) then
     diagnostics.food_shortage(depot, request, item_name)
     diagnostics.clear_unseen_for_request(request.id, check_tick, item_name)
     return
@@ -263,11 +332,141 @@ local function process_request(entry, assign_callback)
   }
 
   if assign_callback(carrier, job) then
-    carrier.food_energy = math.max(0, carrier.food_energy - required_food)
+    carrier.food_energy = math.max(0, carrier.food_energy - food_plan.delivery_cost)
   else
     jobs.complete(job.id, "assign_failed")
   end
   diagnostics.clear_unseen_for_request(request.id, check_tick, item_name)
+end
+
+local function enqueue_requests_for_depot(depot)
+  if not depots.is_valid(depot) then return end
+  local data = state.get()
+  local scoped_nest_ids = indexes.nest_ids(depot.force_name, depot.surface_index)
+  for nest_id in pairs(scoped_nest_ids) do
+    local request = data.nests[nest_id]
+    if nests.is_valid(request)
+      and request.mode == constants.nest_modes.request
+      and networks.depot_covers_nest(depot, request) then
+      nests.enqueue_request_entries(request, function(id, item_name, generator)
+        enqueue_request_entry(data, id, item_name, generator)
+      end)
+    end
+  end
+end
+
+local function continuous_candidate(entry, carrier, home, origin_position, allow_depot_food)
+  local request_id, item_name, generator = normalise_request_entry(entry)
+  local request = nests.get(request_id)
+  if not nests.is_valid(request) then return nil, "request_invalid" end
+  if not networks.depot_covers_nest(home, request) then return nil, "request_out_of_depot_range" end
+  if not nests.request_item_is_current(request, item_name) then return nil, "request_not_current" end
+
+  local item_stack_size = stack_size(item_name)
+  if item_stack_size <= 0 then return nil, "invalid_item" end
+  if nests.free_space_for_item(request, item_name) <= 0 then return nil, "request_full" end
+
+  local demand = nests.request_demand(request, item_name)
+  if demand <= 0 then return nil, "no_demand" end
+
+  local source, depot, candidate_carrier, food_plan, failure, _, score = find_delivery_candidate(request, item_name, {
+    carrier = carrier,
+    home_depot = home,
+    origin_position = origin_position,
+    allow_depot_food = allow_depot_food
+  })
+  if not source or not depot or not candidate_carrier then return nil, failure or "no_candidate" end
+
+  local available = nests.available_supply_count(source, item_name)
+  if available <= 0 then return nil, "no_supply" end
+
+  local capacity = research.carrier_capacity_for_force_name(carrier.force_name or request.force_name) * item_stack_size
+  local requested_count = math.min(demand, available, capacity)
+  if requested_count <= 0 then return nil, "no_demand" end
+
+  return {
+    key = entry_key(entry),
+    source = source,
+    destination = request,
+    depot = depot,
+    carrier = candidate_carrier,
+    item_name = item_name,
+    requested_count = requested_count,
+    generator = generator or nests.request_generator(request),
+    food_plan = food_plan,
+    score = score or math.huge
+  }
+end
+
+local function better_continuous_candidate(candidate, best)
+  if not best then return true end
+  if candidate.score ~= best.score then return candidate.score < best.score end
+  if candidate.destination.id ~= best.destination.id then
+    return candidate.destination.id < best.destination.id
+  end
+  return candidate.source.id < best.source.id
+end
+
+function logistics.find_next_job_for_carrier(carrier, assign_callback, options)
+  options = options or {}
+  if not carrier or not carrier.entity or not carrier.entity.valid then
+    return false, "carrier_invalid"
+  end
+  if carrier.job_id then return false, "carrier_busy" end
+  if not assign_callback then return false, "assign_callback_missing" end
+
+  food.ensure_carrier_fields(carrier)
+  local home = depots.get(carrier.home_depot_id)
+  if not depots.is_valid(home) then return false, "home_depot_invalid" end
+  if carrier.force_name ~= home.force_name or carrier.surface_index ~= home.surface_index then
+    return false, "carrier_scope_mismatch"
+  end
+
+  enqueue_requests_for_depot(home)
+
+  local data = state.get()
+  local origin_position = copy_position(carrier.entity.position)
+  local allow_depot_food = options.allow_depot_food == true
+  local best = nil
+  local last_failure = "no_request"
+
+  for _, entry in ipairs(data.request_queue) do
+    local candidate, failure = continuous_candidate(entry, carrier, home, origin_position, allow_depot_food)
+    if candidate then
+      if better_continuous_candidate(candidate, best) then
+        best = candidate
+      end
+    else
+      last_failure = failure or last_failure
+    end
+  end
+
+  if not best then return false, last_failure end
+
+  if allow_depot_food
+    and carrier.food_energy < best.food_plan.required_food
+    and not depots.consume_food(home, carrier, best.food_plan.required_food) then
+    return false, "food_shortage"
+  end
+
+  remove_request_entry(data, best.key)
+  local job = jobs.create{
+    source_nest_id = best.source.id,
+    destination_nest_id = best.destination.id,
+    carrier_id = carrier.id,
+    home_depot_id = best.depot.id,
+    item_name = best.item_name,
+    requested_count = best.requested_count,
+    generator = best.generator
+  }
+
+  if assign_callback(carrier, job) then
+    carrier.food_energy = math.max(0, carrier.food_energy - best.food_plan.delivery_cost)
+    return true, "assigned", job
+  end
+
+  jobs.complete(job.id, "assign_failed")
+  return false, "assign_failed"
 end
 
 function logistics.process_batch(assign_callback)

@@ -61,6 +61,25 @@ function food.estimate_job_cost(depot, source, destination)
   return math.ceil(constants.food.base_job_cost + trip * constants.food.cost_per_tile)
 end
 
+function food.estimate_delivery_cost(origin, source, destination)
+  local trip = networks.delivery_distance(origin, source, destination)
+  return math.ceil(constants.food.base_job_cost + trip * constants.food.cost_per_tile)
+end
+
+function food.estimate_return_reserve(destination, depot)
+  return math.ceil(networks.return_distance(destination, depot) * constants.food.cost_per_tile)
+end
+
+function food.estimate_delivery_plan(origin, source, destination, home_depot)
+  local delivery_cost = food.estimate_delivery_cost(origin, source, destination)
+  local return_reserve = food.estimate_return_reserve(destination, home_depot)
+  return {
+    delivery_cost = delivery_cost,
+    return_reserve = return_reserve,
+    required_food = delivery_cost + return_reserve
+  }
+end
+
 function food.ensure_carrier_fields(record)
   record.food_capacity = record.food_capacity or constants.food.carrier_capacity
   record.food_energy = math.min(record.food_energy or 0, record.food_capacity)

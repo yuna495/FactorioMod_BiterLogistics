@@ -6,6 +6,7 @@ local jobs = require("scripts.jobs")
 local research = require("scripts.research")
 local food = require("scripts.food")
 local diagnostics = require("scripts.diagnostics")
+local logistics = require("scripts.logistics")
 
 local carriers = {}
 
@@ -387,6 +388,10 @@ local function return_home(record)
   record.command_target_id = nil
   record.command_position = nil
   record.command_failed = nil
+  if not depots.is_valid(home) then
+    carriers.remove(record.id, {spill_cargo = true, return_carrier_item = true, destroy_entity = true})
+    return
+  end
   if not issue_command(record, home, "depot", home_depot_id, "returning") then
     diagnostics.pathfinding_failed(record, home, "depot")
     record.next_update_tick = game.tick + constants.ticks.retry_delay
@@ -407,6 +412,40 @@ local function wait_for_destination_space(record)
   record.command_position = nil
   record.command_failed = nil
   record.next_update_tick = game.tick + destination_space_delay(record)
+end
+
+local function clear_command_tracking(record)
+  record.command_target_type = nil
+  record.command_target_id = nil
+  record.command_position = nil
+  record.command_failed = nil
+end
+
+local function try_next_job(record, options)
+  if has_carried_cargo(record) then return false end
+  if record.job_id then return false end
+  record.state = "idle"
+  clear_command_tracking(record)
+  record.next_update_tick = game.tick
+  local assigned = logistics.find_next_job_for_carrier(record, carriers.assign_job, options)
+  return assigned == true
+end
+
+local function complete_delivery_and_continue(record, job)
+  local destination_nest_id = job and job.destination_nest_id
+  local item_name = job and job.item_name
+  adjust_job_reservation_to_cargo(record)
+  if job then
+    jobs.complete(job.id, "complete")
+  end
+  record.job_id = nil
+  if destination_nest_id then
+    diagnostics.clear_destination_waiting(destination_nest_id, item_name)
+  end
+
+  if not try_next_job(record) then
+    return_home(record)
+  end
 end
 
 local function complete_command_success(record)
@@ -432,6 +471,9 @@ local function complete_command_success(record)
 
   if record.state == "returning" then
     set_idle(record, constants.ticks.idle_delay)
+    if not try_next_job(record, {allow_depot_food = true}) then
+      record.next_update_tick = game.tick + constants.ticks.idle_delay
+    end
     return false
   end
 
@@ -479,7 +521,7 @@ update_record = function(record)
       else
         if has_carried_cargo(record) then spill_cargo(record) end
         clear_job(record, "target_invalid")
-        set_idle(record)
+        return_home(record)
       end
     else
       record.next_update_tick = game.tick + constants.ticks.command_check_interval
@@ -543,9 +585,11 @@ update_record = function(record)
     local job = jobs.get(record.job_id)
     local destination = job and nests.get(job.destination_nest_id)
     if not has_carried_cargo(record) then
-      adjust_job_reservation_to_cargo(record)
-      diagnostics.clear_destination_waiting(job and job.destination_nest_id, job and job.item_name)
-      return_home(record)
+      if job then
+        complete_delivery_and_continue(record, job)
+      else
+        return_home(record)
+      end
       return
     end
 
@@ -565,7 +609,7 @@ update_record = function(record)
     end
 
     diagnostics.clear_destination_waiting(job.destination_nest_id, job.item_name)
-    return_home(record)
+    complete_delivery_and_continue(record, job)
     return
   end
 
@@ -574,9 +618,11 @@ update_record = function(record)
     local destination = job and nests.get(job.destination_nest_id)
 
     if not has_carried_cargo(record) then
-      adjust_job_reservation_to_cargo(record)
-      diagnostics.clear_destination_waiting(job and job.destination_nest_id, job and job.item_name)
-      return_home(record)
+      if job then
+        complete_delivery_and_continue(record, job)
+      else
+        return_home(record)
+      end
       return
     end
 
@@ -605,7 +651,7 @@ update_record = function(record)
     end
 
     diagnostics.clear_destination_waiting(job.destination_nest_id, job.item_name)
-    return_home(record)
+    complete_delivery_and_continue(record, job)
     return
   end
 

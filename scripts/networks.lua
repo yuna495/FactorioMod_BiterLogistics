@@ -35,6 +35,15 @@ function networks.route_distance(depot, source, destination)
     + networks.distance(destination, depot)
 end
 
+function networks.delivery_distance(origin, source, destination)
+  return networks.distance(origin, source)
+    + networks.distance(source, destination)
+end
+
+function networks.return_distance(destination, depot)
+  return networks.distance(destination, depot)
+end
+
 function networks.depot_range(depot)
   local force_name = depot and depot.force_name
   if not force_name and depot and depot.entity and depot.entity.valid then
