@@ -95,6 +95,12 @@ local function migrate(data)
     data.depots_by_force_surface = {}
     data.schema_version = 9
   end
+
+  if data.schema_version < 10 then
+    data.diagnostics = data.diagnostics or {}
+    data.diagnostics.active_alerts = data.diagnostics.active_alerts or {}
+    data.schema_version = 10
+  end
 end
 
 function state.get()
@@ -134,6 +140,7 @@ function state.get()
   ensure_table(data, "force_effects")
   local diagnostics = ensure_table(data, "diagnostics")
   ensure_table(diagnostics, "last_messages")
+  ensure_table(diagnostics, "active_alerts")
 
   data.nest_cursor = data.nest_cursor or 0
   data.depot_cursor = data.depot_cursor or 0

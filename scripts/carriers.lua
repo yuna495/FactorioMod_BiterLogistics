@@ -410,6 +410,7 @@ local function wait_for_destination_space(record)
 end
 
 local function complete_command_success(record)
+  diagnostics.clear_for_carrier(record.id)
   record.command_failed = nil
   record.command_target_type = nil
   record.command_target_id = nil
@@ -543,6 +544,7 @@ update_record = function(record)
     local destination = job and nests.get(job.destination_nest_id)
     if not has_carried_cargo(record) then
       adjust_job_reservation_to_cargo(record)
+      diagnostics.clear_destination_waiting(job and job.destination_nest_id, job and job.item_name)
       return_home(record)
       return
     end
@@ -562,6 +564,7 @@ update_record = function(record)
       return
     end
 
+    diagnostics.clear_destination_waiting(job.destination_nest_id, job.item_name)
     return_home(record)
     return
   end
@@ -572,6 +575,7 @@ update_record = function(record)
 
     if not has_carried_cargo(record) then
       adjust_job_reservation_to_cargo(record)
+      diagnostics.clear_destination_waiting(job and job.destination_nest_id, job and job.item_name)
       return_home(record)
       return
     end
@@ -600,6 +604,7 @@ update_record = function(record)
       return
     end
 
+    diagnostics.clear_destination_waiting(job.destination_nest_id, job.item_name)
     return_home(record)
     return
   end
@@ -690,6 +695,7 @@ function carriers.remove(id, options)
   local data = state.get()
   local record = data.carriers[id]
   if not record then return end
+  diagnostics.clear_for_carrier(id)
 
   if options.spill_cargo then
     spill_cargo(record)

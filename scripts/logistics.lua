@@ -146,16 +146,27 @@ end
 
 local function process_request(request_id, assign_callback)
   local request = nests.get(request_id)
-  if not nests.is_valid(request) then return end
-  if request.mode ~= constants.nest_modes.request or not request.request_item then return end
+  if not nests.is_valid(request) then
+    diagnostics.clear_for_request(request_id)
+    return
+  end
+  if request.mode ~= constants.nest_modes.request or not request.request_item then
+    diagnostics.clear_for_request(request_id)
+    return
+  end
 
   local item_name = request.request_item
+  local check_tick = game.tick
   local item_stack_size = stack_size(item_name)
-  if item_stack_size <= 0 then return end
+  if item_stack_size <= 0 then
+    diagnostics.clear_for_request(request.id)
+    return
+  end
 
   local free = nests.free_space_for_item(request, item_name)
   if free <= 0 then
     diagnostics.request_full(request, item_name)
+    diagnostics.clear_unseen_for_request(request.id, check_tick)
     return
   end
 
@@ -170,20 +181,28 @@ local function process_request(request_id, assign_callback)
     elseif failure == "food_shortage" then
       diagnostics.food_shortage(failure_depot, request, item_name)
     end
+    diagnostics.clear_unseen_for_request(request.id, check_tick)
     return
   end
 
   local available = nests.available_supply_count(source, item_name)
-  if available <= 0 then return end
+  if available <= 0 then
+    diagnostics.clear_unseen_for_request(request.id, check_tick)
+    return
+  end
 
   if carrier.food_energy < required_food and not depots.consume_food(depot, carrier, required_food) then
     diagnostics.food_shortage(depot, request, item_name)
+    diagnostics.clear_unseen_for_request(request.id, check_tick)
     return
   end
 
   local capacity = research.carrier_capacity_for_force_name(request.force_name) * item_stack_size
   local requested_count = math.min(free, available, capacity)
-  if requested_count <= 0 then return end
+  if requested_count <= 0 then
+    diagnostics.clear_unseen_for_request(request.id, check_tick)
+    return
+  end
 
   local job = jobs.create{
     source_nest_id = source.id,
@@ -200,6 +219,7 @@ local function process_request(request_id, assign_callback)
   else
     jobs.complete(job.id, "assign_failed")
   end
+  diagnostics.clear_unseen_for_request(request.id, check_tick)
 end
 
 function logistics.process_batch(assign_callback)

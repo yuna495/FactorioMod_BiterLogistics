@@ -3,6 +3,11 @@ local state = require("scripts.state")
 
 local diagnostics = {}
 
+local function copy_position(position)
+  if not position then return nil end
+  return {x = position.x, y = position.y}
+end
+
 local function record_label(kind, record)
   if not record then return "-" end
   local prefix = kind == "depot" and "Depot" or "Nest"
@@ -44,6 +49,53 @@ local function alert_to_force(force_name, surface_index, entity, icon, message)
   end
 end
 
+local function alert_filter(record)
+  local filter = {
+    type = defines.alert_type.custom,
+    icon = record.icon,
+    message = record.message
+  }
+  if record.entity and record.entity.valid then
+    filter.entity = record.entity
+  else
+    filter.prototype = record.prototype
+    filter.position = record.position
+    filter.surface = record.surface_index
+  end
+  return filter
+end
+
+local function remove_alert_from_force(record)
+  if not record or not record.force_name then return end
+  for _, player in pairs(game.players) do
+    if player.force.name == record.force_name
+      and (not record.surface_index or player.surface_index == record.surface_index) then
+      player.remove_alert(alert_filter(record))
+    end
+  end
+end
+
+local function clear_key(diagnostics_state, key)
+  local record = diagnostics_state.active_alerts and diagnostics_state.active_alerts[key]
+  if not record then return end
+  remove_alert_from_force(record)
+  diagnostics_state.active_alerts[key] = nil
+  if diagnostics_state.last_messages then
+    diagnostics_state.last_messages[key] = nil
+  end
+end
+
+local function clear_matching(predicate)
+  local data = state.get()
+  local diagnostics_state = data.diagnostics
+  diagnostics_state.active_alerts = diagnostics_state.active_alerts or {}
+  for key, record in pairs(diagnostics_state.active_alerts) do
+    if predicate(record) then
+      clear_key(diagnostics_state, key)
+    end
+  end
+end
+
 local function key_for(kind, parts)
   local key = kind
   for _, part in ipairs(parts or {}) do
@@ -52,19 +104,34 @@ local function key_for(kind, parts)
   return key
 end
 
-function diagnostics.notify(kind, scope, message, key_parts)
+function diagnostics.notify(kind, scope, message, key_parts, metadata)
   if not scope then return end
   local data = state.get()
   local diagnostics_state = data.diagnostics
   diagnostics_state.last_messages = diagnostics_state.last_messages or {}
+  diagnostics_state.active_alerts = diagnostics_state.active_alerts or {}
 
   local key = key_for(kind, key_parts)
+  local entity = scope.entity
+  local icon = alert_icon(kind)
+  local active = metadata or {}
+  active.kind = kind
+  active.force_name = scope.force_name or (entity and entity.valid and entity.force.name) or active.force_name
+  active.surface_index = scope.surface_index or (entity and entity.valid and entity.surface_index) or active.surface_index
+  active.entity = entity
+  active.prototype = entity and entity.valid and entity.name or active.prototype
+  active.position = copy_position((entity and entity.valid and entity.position) or scope.position or active.position)
+  active.icon = icon
+  active.message = message
+  active.last_seen_tick = game.tick
+  diagnostics_state.active_alerts[key] = active
+
   local last_tick = diagnostics_state.last_messages[key]
   local cooldown = constants.ticks.diagnostic_message_cooldown
   if last_tick and game.tick - last_tick < cooldown then return end
 
   diagnostics_state.last_messages[key] = game.tick
-  alert_to_force(scope.force_name, scope.surface_index, scope.entity, alert_icon(kind), message)
+  alert_to_force(active.force_name, active.surface_index, active.entity, icon, message)
 end
 
 function diagnostics.request_full(request, item_name)
@@ -77,7 +144,8 @@ function diagnostics.request_full(request, item_name)
       gps(request),
       item_caption(item_name)
     },
-    {request and request.id, item_name}
+    {request and request.id, item_name},
+    {request_id = request and request.id, item_name = item_name}
   )
 end
 
@@ -91,7 +159,8 @@ function diagnostics.no_supply(request, item_name)
       record_label("nest", request),
       gps(request)
     },
-    {request and request.id, item_name}
+    {request and request.id, item_name},
+    {request_id = request and request.id, item_name = item_name}
   )
 end
 
@@ -105,7 +174,8 @@ function diagnostics.supply_out_of_depot_range(request, item_name)
       record_label("nest", request),
       gps(request)
     },
-    {request and request.id, item_name}
+    {request and request.id, item_name},
+    {request_id = request and request.id, item_name = item_name}
   )
 end
 
@@ -119,7 +189,8 @@ function diagnostics.all_carriers_busy(request, item_name)
       record_label("nest", request),
       gps(request)
     },
-    {request and request.id, item_name}
+    {request and request.id, item_name},
+    {request_id = request and request.id, item_name = item_name}
   )
 end
 
@@ -135,7 +206,8 @@ function diagnostics.food_shortage(depot, request, item_name)
       record_label("nest", request),
       gps(request)
     },
-    {depot and depot.id, request and request.id, item_name}
+    {depot and depot.id, request and request.id, item_name},
+    {depot_id = depot and depot.id, request_id = request and request.id, item_name = item_name}
   )
 end
 
@@ -151,7 +223,8 @@ function diagnostics.pathfinding_failed(carrier, target_record, target_kind)
       record_label(target_kind == "depot" and "depot" or "nest", target_record),
       gps(target_record)
     },
-    {carrier and carrier.id, target_kind, target_record and target_record.id}
+    {carrier and carrier.id, target_kind, target_record and target_record.id},
+    {carrier_id = carrier and carrier.id, target_kind = target_kind, target_id = target_record and target_record.id}
   )
 end
 
@@ -166,8 +239,53 @@ function diagnostics.destination_waiting(carrier, destination, item_name)
       record_label("nest", destination),
       gps(destination)
     },
-    {destination and destination.id, item_name}
+    {destination and destination.id, item_name},
+    {carrier_id = carrier and carrier.id, destination_nest_id = destination and destination.id, item_name = item_name}
   )
+end
+
+function diagnostics.clear_for_request(request_id, item_name)
+  if not request_id then return end
+  clear_matching(function(record)
+    return record.request_id == request_id and (not item_name or record.item_name == item_name)
+  end)
+end
+
+function diagnostics.clear_unseen_for_request(request_id, seen_tick)
+  if not request_id then return end
+  clear_matching(function(record)
+    return record.request_id == request_id and record.last_seen_tick ~= seen_tick
+  end)
+end
+
+function diagnostics.clear_for_carrier(carrier_id)
+  if not carrier_id then return end
+  clear_matching(function(record)
+    return record.carrier_id == carrier_id
+  end)
+end
+
+function diagnostics.clear_destination_waiting(destination_nest_id, item_name)
+  if not destination_nest_id then return end
+  clear_matching(function(record)
+    return record.kind == "destination-waiting"
+      and record.destination_nest_id == destination_nest_id
+      and (not item_name or record.item_name == item_name)
+  end)
+end
+
+function diagnostics.process_alerts()
+  local data = state.get()
+  local diagnostics_state = data.diagnostics
+  diagnostics_state.active_alerts = diagnostics_state.active_alerts or {}
+  local stale_ticks = constants.ticks.diagnostic_alert_stale_ticks
+  for key, record in pairs(diagnostics_state.active_alerts) do
+    local stale = not record.last_seen_tick or game.tick - record.last_seen_tick >= stale_ticks
+    local invalid_entity = record.entity and not record.entity.valid
+    if stale or invalid_entity then
+      clear_key(diagnostics_state, key)
+    end
+  end
 end
 
 return diagnostics

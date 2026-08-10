@@ -10,6 +10,8 @@ local research = require("scripts.research")
 local jobs = require("scripts.jobs")
 local logistics = require("scripts.logistics")
 local range_visuals = require("scripts.range_visuals")
+local diagnostics = require("scripts.diagnostics")
+local biomass_loot = require("scripts.biomass_loot")
 
 local function event_entity(event)
   return event.created_entity or event.entity or event.destination
@@ -60,6 +62,9 @@ end
 local function on_removed(event)
   local entity = event_entity(event)
   local refresh = is_visual_entity(entity)
+  if event.name == defines.events.on_entity_died then
+    biomass_loot.on_entity_died(event)
+  end
   cleanup.on_removed(event)
   if refresh then
     range_visuals.refresh_all_players()
@@ -155,6 +160,10 @@ end)
 
 script.on_nth_tick(constants.ticks.range_visual_update_interval, function()
   range_visuals.refresh_all_players()
+end)
+
+script.on_nth_tick(constants.ticks.diagnostic_alert_update_interval, function()
+  diagnostics.process_alerts()
 end)
 
 debug.register_commands()

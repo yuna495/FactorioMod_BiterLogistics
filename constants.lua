@@ -108,7 +108,20 @@ constants.ticks = {
   command_check_interval = 60,
   command_timeout = 60 * 60,
   range_visual_update_interval = 60,
-  diagnostic_message_cooldown = 60 * 5
+  diagnostic_message_cooldown = 60 * 5,
+  diagnostic_alert_update_interval = 60,
+  diagnostic_alert_stale_ticks = 60 * 5
+}
+
+constants.biomass_loot = {
+  source_spawners = {
+    ["biter-spawner"] = true,
+    ["spitter-spawner"] = true
+  },
+  count_min = 2,
+  count_max = 4,
+  drop_radius = 3,
+  spill_radius = 0.25
 }
 
 constants.command = {

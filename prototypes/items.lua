@@ -29,7 +29,7 @@ local carrier_item = {
   stack_size = 50
 }
 
-local biomass_icon = "__base__/graphics/icons/small-biter-corpse.png"
+local biomass_icon = "__BiterLogistics__/data/entities/Biter-Biomass/Biter-Biomass.png"
 
 local biomass_item = {
   type = "item",
@@ -37,8 +37,9 @@ local biomass_item = {
   localised_name = {"item-name.biter-logistics-biter-biomass"},
   localised_description = {"item-description.biter-logistics-biter-biomass"},
   icon = biomass_icon,
+  icon_size = 128,
   pictures = {
-    {size = 64, filename = biomass_icon, scale = 0.7, mipmap_count = 4}
+    {filename = biomass_icon, width = 130, height = 128, scale = 0.7}
   },
   subgroup = "raw-material",
   order = "z[biter-logistics]-a[biter-biomass]",
