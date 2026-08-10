@@ -99,12 +99,18 @@ script.on_event(defines.events.on_object_destroyed, on_object_destroyed)
 script.on_event(defines.events.on_ai_command_completed, carriers.on_ai_command_completed)
 local function on_research_changed(event)
   research.on_research_changed(event)
+  if event.research and event.research.valid then
+    nests.invalidate_circuit_cache_for_force(event.research.force.name)
+  end
   logistics.enqueue_all_requests()
   range_visuals.refresh_all_players()
 end
 
 local function on_technology_effects_reset(event)
   research.on_technology_effects_reset(event)
+  if event.force and event.force.valid then
+    nests.invalidate_circuit_cache_for_force(event.force.name)
+  end
   logistics.enqueue_all_requests()
   range_visuals.refresh_all_players()
 end

@@ -120,6 +120,17 @@ local function item_stack_size(name)
   return prototype and prototype.stack_size or 0
 end
 
+local function circuit_refresh_status(record, connected_count, target_count, invalid_count)
+  local status = {
+    connected_count = connected_count or 0,
+    target_count = target_count or 0,
+    invalid_count = invalid_count or 0
+  }
+  record.last_circuit_refresh_tick = game.tick
+  record.last_circuit_refresh_status = status
+  return status
+end
+
 local function normalise_request_threshold(value)
   value = tonumber(value) or constants.request_thresholds.default
   if constants.request_thresholds.fractions[value] then return value end
@@ -231,7 +242,7 @@ local function read_control_combinator_targets(entity)
   end
 
   for _, section in ipairs(sections) do
-    if section.valid and section.active ~= false and section.get_slot then
+    if section.valid ~= false and section.active ~= false and section.get_slot then
       local filters_count = section.filters_count or 0
       for slot_index = 1, filters_count do
         local ok_slot, filter = pcall(function()
@@ -333,6 +344,8 @@ function nests.register(entity)
   record.mode = record.mode or constants.nest_modes.supply
   record.request_quality = record.request_quality or "normal"
   ensure_request_fields(record)
+  record.last_circuit_refresh_tick = nil
+  record.last_circuit_refresh_status = nil
   indexes.register_nest(record)
 
   nests.configure_inventory(entity)
@@ -446,6 +459,22 @@ function nests.set_display_name(id, display_name)
   end
 end
 
+function nests.invalidate_circuit_cache(record_or_id)
+  local record = type(record_or_id) == "table" and record_or_id or nests.get(record_or_id)
+  if not record then return end
+  record.last_circuit_refresh_tick = nil
+  record.last_circuit_refresh_status = nil
+end
+
+function nests.invalidate_circuit_cache_for_force(force_name)
+  local data = state.get()
+  for _, record in pairs(data.nests) do
+    if not force_name or record.force_name == force_name then
+      nests.invalidate_circuit_cache(record)
+    end
+  end
+end
+
 function nests.set_mode(id, mode)
   local record = nests.get(id)
   if not nests.is_valid(record) then return false end
@@ -454,6 +483,7 @@ function nests.set_mode(id, mode)
   end
   record.mode = mode
   ensure_request_fields(record)
+  nests.invalidate_circuit_cache(record)
   if mode ~= constants.nest_modes.request then
     diagnostics.clear_for_request(record.id)
   end
@@ -473,6 +503,7 @@ function nests.set_request_mode(id, request_mode)
     return false
   end
   record.request_mode = request_mode
+  nests.invalidate_circuit_cache(record)
   diagnostics.clear_for_request(record.id)
   if request_mode == constants.request_modes.simple then
     diagnostics.clear_no_control_combinator(record.id)
@@ -497,6 +528,7 @@ function nests.set_request_threshold(id, threshold)
   ensure_request_fields(record)
   local normalised = normalise_request_threshold(threshold)
   record.request_threshold = normalised
+  nests.invalidate_circuit_cache(record)
   return true
 end
 
@@ -506,6 +538,15 @@ function nests.cargo_slot_count(record)
     force_name = record.entity.force.name
   end
   return research.nest_cargo_slots_for_force_name(force_name)
+end
+
+function nests.max_target_capacity(record, item_name)
+  local stack_size = item_stack_size(item_name)
+  if stack_size <= 0 then return 0 end
+  local inventory = get_chest_inventory(record)
+  if not inventory then return 0 end
+  local slots = math.min(nests.cargo_slot_count(record), #inventory)
+  return math.max(0, slots * stack_size)
 end
 
 function nests.has_cargo(record)
@@ -527,37 +568,64 @@ function nests.count_item(record, item_name)
   return total
 end
 
-function nests.refresh_circuit_requests(record)
+function nests.refresh_circuit_requests(record, force_refresh)
   if not nests.is_valid(record) then
-    return {connected_count = 0, target_count = 0}
+    return {connected_count = 0, target_count = 0, invalid_count = 0}
   end
   ensure_request_fields(record)
+
+  if not force_refresh
+    and record.last_circuit_refresh_tick == game.tick
+    and record.last_circuit_refresh_status then
+    return record.last_circuit_refresh_status
+  end
+
   if record.request_mode ~= constants.request_modes.circuit
     or not research.circuit_control_for_force_name(record.force_name) then
+    for item_name in pairs(record.circuit_requests or {}) do
+      diagnostics.clear_for_request(record.id, item_name)
+    end
     record.circuit_requests = {}
-    return {connected_count = 0, target_count = 0}
+    return circuit_refresh_status(record, 0, 0, 0)
   end
 
   local targets, connected_count = calculate_circuit_targets(record)
   local threshold_fraction = constants.request_thresholds.fractions[record.request_threshold] or 0.5
   local next_requests = {}
   local target_count = 0
+  local invalid_count = 0
 
   for item_name, target in pairs(targets) do
     if target > 0 then
       local previous = record.circuit_requests[item_name] or {}
-      local stock = nests.count_item(record, item_name)
-      local active = previous.active == true
-      if active then
-        active = stock < target
-      else
-        active = stock <= target * threshold_fraction
-      end
-      next_requests[item_name] = {
-        target = target,
-        active = active
-      }
+      local max_capacity = nests.max_target_capacity(record, item_name)
       target_count = target_count + 1
+      if target > max_capacity then
+        next_requests[item_name] = {
+          target = target,
+          active = false,
+          invalid_reason = "target_overflow",
+          max_capacity = max_capacity
+        }
+        diagnostics.circuit_target_overflow(record, item_name, target, max_capacity)
+        diagnostics.clear_unseen_for_request(record.id, game.tick, item_name)
+        invalid_count = invalid_count + 1
+      else
+        diagnostics.clear_circuit_target_overflow(record.id, item_name)
+        local stock = nests.count_item(record, item_name)
+        local active = previous.active == true
+        if active then
+          active = stock < target
+        else
+          active = stock <= target * threshold_fraction
+        end
+        next_requests[item_name] = {
+          target = target,
+          active = active,
+          invalid_reason = false,
+          max_capacity = max_capacity
+        }
+      end
     end
   end
 
@@ -568,7 +636,7 @@ function nests.refresh_circuit_requests(record)
   end
 
   record.circuit_requests = next_requests
-  return {connected_count = connected_count, target_count = target_count}
+  return circuit_refresh_status(record, connected_count, target_count, invalid_count)
 end
 
 function nests.circuit_status(record)
@@ -591,10 +659,20 @@ function nests.request_item_is_current(record, item_name)
     if not research.circuit_control_for_force_name(record.force_name) then return false end
     nests.refresh_circuit_requests(record)
     local request = record.circuit_requests[item_name]
-    return request and request.active == true and request.target > 0 or false
+    return request and request.active == true and request.target > 0 and not request.invalid_reason or false
   end
 
   return record.request_item == item_name
+end
+
+function nests.request_blocking_reason(record, item_name)
+  if not item_name or not nests.is_valid(record) or record.mode ~= constants.nest_modes.request then return nil end
+  ensure_request_fields(record)
+  if record.request_mode ~= constants.request_modes.circuit then return nil end
+  if not research.circuit_control_for_force_name(record.force_name) then return nil end
+  nests.refresh_circuit_requests(record)
+  local request = record.circuit_requests[item_name]
+  return request and request.invalid_reason or nil
 end
 
 function nests.request_demand(record, item_name)
@@ -622,6 +700,7 @@ function nests.enqueue_request_entries(record, request_callback)
   if record.request_mode == constants.request_modes.circuit then
     if not research.circuit_control_for_force_name(record.force_name) then
       record.circuit_requests = {}
+      diagnostics.clear_item_alerts_for_request(record.id)
       diagnostics.clear_no_control_combinator(record.id)
       return
     end
@@ -636,7 +715,7 @@ function nests.enqueue_request_entries(record, request_callback)
 
     local item_names = {}
     for item_name, request in pairs(record.circuit_requests) do
-      if request.active and request.target > 0 then
+      if request.active and request.target > 0 and not request.invalid_reason then
         item_names[#item_names + 1] = item_name
       end
     end

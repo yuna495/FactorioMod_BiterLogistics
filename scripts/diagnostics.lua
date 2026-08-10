@@ -104,6 +104,17 @@ local function key_for(kind, parts)
   return key
 end
 
+local function stable_value_key(value)
+  if type(value) ~= "table" then return tostring(value) end
+  local parts = {"{"}
+  for index = 1, #value do
+    parts[#parts + 1] = stable_value_key(value[index])
+    parts[#parts + 1] = "|"
+  end
+  parts[#parts + 1] = "}"
+  return table.concat(parts)
+end
+
 function diagnostics.notify(kind, scope, message, key_parts, metadata)
   if not scope then return end
   local data = state.get()
@@ -112,6 +123,12 @@ function diagnostics.notify(kind, scope, message, key_parts, metadata)
   diagnostics_state.active_alerts = diagnostics_state.active_alerts or {}
 
   local key = key_for(kind, key_parts)
+  local message_key = stable_value_key(message)
+  local previous = diagnostics_state.active_alerts[key]
+  if previous and previous.message_key and previous.message_key ~= message_key then
+    clear_key(diagnostics_state, key)
+  end
+
   local entity = scope.entity
   local icon = alert_icon(kind)
   local active = metadata or {}
@@ -123,6 +140,7 @@ function diagnostics.notify(kind, scope, message, key_parts, metadata)
   active.position = copy_position((entity and entity.valid and entity.position) or scope.position or active.position)
   active.icon = icon
   active.message = message
+  active.message_key = message_key
   active.last_seen_tick = game.tick
   diagnostics_state.active_alerts[key] = active
 
@@ -258,6 +276,28 @@ function diagnostics.no_control_combinator(request)
   )
 end
 
+function diagnostics.circuit_target_overflow(request, item_name, target, max_capacity)
+  diagnostics.notify(
+    "circuit-target-overflow",
+    request,
+    {
+      "diagnostic.biter-logistics-circuit-target-overflow",
+      record_label("nest", request),
+      gps(request),
+      item_caption(item_name),
+      target or 0,
+      max_capacity or 0
+    },
+    {request and request.id, item_name},
+    {
+      request_id = request and request.id,
+      item_name = item_name,
+      target = target or 0,
+      max_capacity = max_capacity or 0
+    }
+  )
+end
+
 function diagnostics.clear_for_request(request_id, item_name)
   if not request_id then return end
   clear_matching(function(record)
@@ -276,6 +316,15 @@ function diagnostics.clear_no_control_combinator(request_id)
   if not request_id then return end
   clear_matching(function(record)
     return record.kind == "no-control-combinator" and record.request_id == request_id
+  end)
+end
+
+function diagnostics.clear_circuit_target_overflow(request_id, item_name)
+  if not request_id then return end
+  clear_matching(function(record)
+    return record.kind == "circuit-target-overflow"
+      and record.request_id == request_id
+      and (not item_name or record.item_name == item_name)
   end)
 end
 

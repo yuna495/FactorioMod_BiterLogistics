@@ -185,16 +185,20 @@ end
 local function process_request(entry, assign_callback)
   local request_id, item_name, generator = normalise_request_entry(entry)
   local request = nests.get(request_id)
+  local check_tick = game.tick
   if not nests.is_valid(request) then
     diagnostics.clear_for_request(request_id)
     return
   end
   if not nests.request_item_is_current(request, item_name) then
-    diagnostics.clear_for_request(request_id, item_name)
+    if nests.request_blocking_reason(request, item_name) then
+      diagnostics.clear_unseen_for_request(request_id, check_tick, item_name)
+    else
+      diagnostics.clear_for_request(request_id, item_name)
+    end
     return
   end
 
-  local check_tick = game.tick
   local item_stack_size = stack_size(item_name)
   if item_stack_size <= 0 then
     diagnostics.clear_for_request(request.id, item_name)
