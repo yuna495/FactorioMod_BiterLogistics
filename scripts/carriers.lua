@@ -5,6 +5,7 @@ local depots = require("scripts.depots")
 local jobs = require("scripts.jobs")
 local research = require("scripts.research")
 local food = require("scripts.food")
+local diagnostics = require("scripts.diagnostics")
 
 local carriers = {}
 
@@ -387,6 +388,7 @@ local function return_home(record)
   record.command_position = nil
   record.command_failed = nil
   if not issue_command(record, home, "depot", home_depot_id, "returning") then
+    diagnostics.pathfinding_failed(record, home, "depot")
     record.next_update_tick = game.tick + constants.ticks.retry_delay
   end
 end
@@ -464,11 +466,13 @@ update_record = function(record)
 
     if record.command_failed or command_ended or command_timed_out then
       if record.command_failed then
+        diagnostics.pathfinding_failed(record, target_record, target_type)
         if has_carried_cargo(record) then spill_cargo(record) end
         clear_job(record, "pathfinding_failed")
         return_home(record)
       elseif target_record then
         if not issue_command(record, target_record, target_type, target_id, record.state) then
+          diagnostics.pathfinding_failed(record, target_record, target_type)
           record.next_update_tick = game.tick + constants.ticks.retry_delay
         end
       else
@@ -496,6 +500,7 @@ update_record = function(record)
     if is_near_record(record, home) then
       record.next_update_tick = game.tick + constants.ticks.idle_delay
     elseif not issue_command(record, home, "depot", home.id, "returning") then
+      diagnostics.pathfinding_failed(record, home, "depot")
       record.next_update_tick = game.tick + constants.ticks.retry_delay
     end
     return
@@ -525,6 +530,7 @@ update_record = function(record)
 
     jobs.set_state(record.job_id, "to_destination")
     if not issue_command(record, destination, "nest", destination.id, "to_destination") then
+      diagnostics.pathfinding_failed(record, destination, "nest")
       spill_cargo(record)
       clear_job(record, "destination_command_failed")
       return_home(record)
@@ -551,6 +557,7 @@ update_record = function(record)
     insert_all_cargo(record, destination)
     adjust_job_reservation_to_cargo(record)
     if has_carried_cargo(record) then
+      diagnostics.destination_waiting(record, destination, job.item_name)
       wait_for_destination_space(record)
       return
     end
@@ -579,6 +586,7 @@ update_record = function(record)
     if not is_near_record(record, destination) then
       jobs.set_state(record.job_id, "to_destination")
       if not issue_command(record, destination, "nest", destination.id, "to_destination") then
+        diagnostics.pathfinding_failed(record, destination, "nest")
         wait_for_destination_space(record)
       end
       return
@@ -587,6 +595,7 @@ update_record = function(record)
     insert_all_cargo(record, destination)
     adjust_job_reservation_to_cargo(record)
     if has_carried_cargo(record) then
+      diagnostics.destination_waiting(record, destination, job.item_name)
       wait_for_destination_space(record)
       return
     end
@@ -626,6 +635,7 @@ function carriers.assign_job(record, job)
   end
 
   if not issue_command(record, source, "nest", source.id, "to_source") then
+    diagnostics.pathfinding_failed(record, source, "nest")
     record.job_id = nil
     record.state = "idle"
     record.next_update_tick = game.tick + constants.ticks.retry_delay

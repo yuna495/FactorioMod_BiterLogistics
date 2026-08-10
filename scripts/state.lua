@@ -83,6 +83,12 @@ local function migrate(data)
     end
     data.schema_version = 7
   end
+
+  if data.schema_version < 8 then
+    data.diagnostics = data.diagnostics or {}
+    data.diagnostics.last_messages = data.diagnostics.last_messages or {}
+    data.schema_version = 8
+  end
 end
 
 function state.get()
@@ -118,6 +124,8 @@ function state.get()
   ensure_table(data, "players")
   ensure_table(data, "destroy_registrations")
   ensure_table(data, "force_effects")
+  local diagnostics = ensure_table(data, "diagnostics")
+  ensure_table(diagnostics, "last_messages")
 
   data.nest_cursor = data.nest_cursor or 0
   data.depot_cursor = data.depot_cursor or 0

@@ -107,7 +107,8 @@ constants.ticks = {
   destination_space_check_jitter = 60,
   command_check_interval = 60,
   command_timeout = 60 * 60,
-  range_visual_update_interval = 60
+  range_visual_update_interval = 60,
+  diagnostic_message_cooldown = 60 * 30
 }
 
 constants.command = {
