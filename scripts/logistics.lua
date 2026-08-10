@@ -90,7 +90,9 @@ local function find_depot_and_carrier(source, request)
     if depots.is_valid(depot) and same_network(request, depot) then
       local carrier = depots.find_idle_carrier(depot)
       local required_food = food.estimate_job_cost(depot, source, request)
-      if carrier and (carrier.food_energy >= required_food or depots.available_food_energy(depot) + carrier.food_energy >= required_food) then
+      if carrier
+        and required_food <= carrier.food_capacity
+        and (carrier.food_energy >= required_food or depots.available_food_energy(depot) + carrier.food_energy >= required_food) then
         local score = distance_squared(depot, source) + distance_squared(depot, request)
         if not best_score or score < best_score then
           best_depot = depot

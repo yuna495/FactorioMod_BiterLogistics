@@ -55,6 +55,15 @@ local function migrate(data)
 
     data.schema_version = 4
   end
+
+  if data.schema_version < 5 then
+    for _, job in pairs(data.jobs or {}) do
+      if job.reserved_count == nil then
+        job.reserved_count = job.requested_count or 0
+      end
+    end
+    data.schema_version = 5
+  end
 end
 
 function state.get()

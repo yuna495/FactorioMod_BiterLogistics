@@ -148,33 +148,62 @@ local function process_carrier_slot(record, spawn_callback)
   end
 end
 
-function depots.consume_food(record, carrier_record, target_energy)
-  if not depots.is_valid(record) or not carrier_record then return false end
-  food.ensure_carrier_fields(carrier_record)
-  if carrier_record.food_energy >= target_energy then return true end
+local function best_food_slot(inventory, values, needed)
+  local best_over_slot = nil
+  local best_over_value = nil
+  local best_under_slot = nil
+  local best_under_value = nil
 
-  local inventory = get_inventory(record)
-  if not inventory then return false end
-
-  local values = food.values_for_force_name(record.force_name)
   for slot = constants.depot_slots.food_first, #inventory do
     local stack = inventory[slot]
     if stack and stack.valid and stack.valid_for_read then
       local value = values[stack.name] or 0
-      while value > 0 and stack.valid_for_read and carrier_record.food_energy < target_energy do
-        carrier_record.food_energy = math.min(carrier_record.food_capacity, carrier_record.food_energy + value)
-        if stack.count > 1 then
-          stack.count = stack.count - 1
-        else
-          stack.clear()
+      if value > 0 then
+        if value >= needed then
+          if not best_over_value or value < best_over_value then
+            best_over_slot = slot
+            best_over_value = value
+          end
+        elseif not best_under_value or value > best_under_value then
+          best_under_slot = slot
+          best_under_value = value
         end
-        if carrier_record.food_energy >= carrier_record.food_capacity then break end
       end
     end
-    if carrier_record.food_energy >= target_energy then return true end
   end
 
-  return carrier_record.food_energy >= target_energy
+  if best_over_slot then return best_over_slot, best_over_value end
+  return best_under_slot, best_under_value
+end
+
+function depots.consume_food(record, carrier_record, target_energy)
+  if not depots.is_valid(record) or not carrier_record then return false end
+  food.ensure_carrier_fields(carrier_record)
+  if carrier_record.food_energy >= target_energy then return true end
+  if target_energy > carrier_record.food_capacity then return false end
+
+  local inventory = get_inventory(record)
+  if not inventory then return false end
+  if carrier_record.food_energy + depots.available_food_energy(record) < target_energy then return false end
+
+  local values = food.values_for_force_name(record.force_name)
+  while carrier_record.food_energy < target_energy do
+    local needed = target_energy - carrier_record.food_energy
+    local slot, value = best_food_slot(inventory, values, needed)
+    if not slot or not value then return false end
+
+    local stack = inventory[slot]
+    if not stack or not stack.valid or not stack.valid_for_read then return false end
+
+    carrier_record.food_energy = math.min(carrier_record.food_capacity, carrier_record.food_energy + value)
+    if stack.count > 1 then
+      stack.count = stack.count - 1
+    else
+      stack.clear()
+    end
+  end
+
+  return true
 end
 
 function depots.available_food_energy(record)

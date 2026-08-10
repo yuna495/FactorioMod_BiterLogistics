@@ -73,6 +73,20 @@ local function has_carried_cargo(record)
   return false
 end
 
+local function carried_count(record)
+  local total = 0
+  for _, cargo in ipairs(normalise_cargo_slots(record)) do
+    total = total + (cargo.count or 0)
+  end
+  return total
+end
+
+local function adjust_job_reservation_to_cargo(record)
+  if record.job_id then
+    jobs.adjust_reservation_to_count(record.job_id, carried_count(record))
+  end
+end
+
 local function carrier_capacity(record)
   local force_name = record.force_name
   if not force_name and valid(record.entity) then
@@ -94,6 +108,7 @@ local function load_cargo_from_source(record, source, job)
   end
 
   jobs.set_picked_count(job.id, loaded_count)
+  jobs.adjust_reservation_to_picked_count(job.id)
   return loaded_count
 end
 
@@ -448,12 +463,17 @@ update_record = function(record)
     end
 
     if record.command_failed or command_ended or command_timed_out then
-      if target_record then
+      if record.command_failed then
+        if has_carried_cargo(record) then spill_cargo(record) end
+        clear_job(record, "pathfinding_failed")
+        return_home(record)
+      elseif target_record then
         if not issue_command(record, target_record, target_type, target_id, record.state) then
           record.next_update_tick = game.tick + constants.ticks.retry_delay
         end
       else
         if has_carried_cargo(record) then spill_cargo(record) end
+        clear_job(record, "target_invalid")
         set_idle(record)
       end
     else
@@ -486,27 +506,27 @@ update_record = function(record)
     local source = job and nests.get(job.source_nest_id)
     local destination = job and nests.get(job.destination_nest_id)
     if not job or not nests.is_valid(source) then
-      jobs.set_failure(record.job_id, "source_invalid")
+      clear_job(record, "source_invalid")
       return_home(record)
       return
     end
     if not nests.is_valid(destination) then
-      jobs.set_failure(record.job_id, "destination_invalid")
+      clear_job(record, "destination_invalid")
       return_home(record)
       return
     end
 
     local loaded = load_cargo_from_source(record, source, job)
     if loaded <= 0 or not has_carried_cargo(record) then
-      jobs.set_failure(record.job_id, "no_supply")
+      clear_job(record, "no_supply")
       return_home(record)
       return
     end
 
     jobs.set_state(record.job_id, "to_destination")
     if not issue_command(record, destination, "nest", destination.id, "to_destination") then
-      jobs.set_failure(record.job_id, "destination_command_failed")
       spill_cargo(record)
+      clear_job(record, "destination_command_failed")
       return_home(record)
     end
     return
@@ -516,18 +536,20 @@ update_record = function(record)
     local job = jobs.get(record.job_id)
     local destination = job and nests.get(job.destination_nest_id)
     if not has_carried_cargo(record) then
+      adjust_job_reservation_to_cargo(record)
       return_home(record)
       return
     end
 
     if not nests.is_valid(destination) then
-      jobs.set_failure(record.job_id, "destination_invalid")
       spill_cargo(record)
+      clear_job(record, "destination_invalid")
       return_home(record)
       return
     end
 
     insert_all_cargo(record, destination)
+    adjust_job_reservation_to_cargo(record)
     if has_carried_cargo(record) then
       wait_for_destination_space(record)
       return
@@ -542,13 +564,14 @@ update_record = function(record)
     local destination = job and nests.get(job.destination_nest_id)
 
     if not has_carried_cargo(record) then
+      adjust_job_reservation_to_cargo(record)
       return_home(record)
       return
     end
 
     if not job or not nests.is_valid(destination) then
-      jobs.set_failure(record.job_id, "destination_invalid")
       spill_cargo(record)
+      clear_job(record, "destination_invalid")
       return_home(record)
       return
     end
@@ -562,6 +585,7 @@ update_record = function(record)
     end
 
     insert_all_cargo(record, destination)
+    adjust_job_reservation_to_cargo(record)
     if has_carried_cargo(record) then
       wait_for_destination_space(record)
       return
@@ -707,8 +731,8 @@ function carriers.handle_nest_removed(nest_id)
     if record and record.job_id then
       local job = jobs.get(record.job_id)
       if job and (job.source_nest_id == nest_id or job.destination_nest_id == nest_id) then
-        jobs.set_failure(job.id, "nest_removed")
         if has_carried_cargo(record) then spill_cargo(record) end
+        clear_job(record, "nest_removed")
         return_home(record)
       end
     end
@@ -736,8 +760,8 @@ function carriers.handle_depot_removed(depot_id, position, options)
     elseif record and record.job_id then
       local job = jobs.get(record.job_id)
       if job and job.home_depot_id == depot_id then
-        jobs.set_failure(job.id, "depot_removed")
         if has_carried_cargo(record) then spill_cargo(record) end
+        clear_job(record, "depot_removed")
         carriers.remove(id, {return_carrier_item = true, item_position = position, destroy_entity = true})
       end
     end
@@ -760,6 +784,20 @@ function carriers.validate()
       food.ensure_carrier_fields(record)
       normalise_cargo_slots(record)
       research.apply_to_carrier(record)
+
+      local job = record.job_id and jobs.get(record.job_id)
+      if record.job_id and not job then
+        record.job_id = nil
+      elseif job and not nests.is_valid(nests.get(job.source_nest_id)) then
+        if has_carried_cargo(record) then spill_cargo(record) end
+        clear_job(record, "source_invalid")
+        return_home(record)
+      elseif job and not nests.is_valid(nests.get(job.destination_nest_id)) then
+        if has_carried_cargo(record) then spill_cargo(record) end
+        clear_job(record, "destination_invalid")
+        return_home(record)
+      end
+
       enqueue(data, id)
     elseif record then
       carriers.remove(id, {spill_cargo = true, return_carrier_item = true, destroy_entity = valid(record.entity)})

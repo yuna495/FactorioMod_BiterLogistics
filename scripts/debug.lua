@@ -44,6 +44,33 @@ local function cargo_text(record)
   return table.concat(slots, ", ")
 end
 
+local function job_scope_matches_player(job, player)
+  if not player then return true end
+  local data = state.get()
+  local source = job.source_nest_id and data.nests[job.source_nest_id]
+  local destination = job.destination_nest_id and data.nests[job.destination_nest_id]
+  return (source and source.surface_index == player.surface_index)
+    or (destination and destination.surface_index == player.surface_index)
+end
+
+local function reservation_scope_matches_player(nest_id, player)
+  if not player then return true end
+  local record = state.get().nests[nest_id]
+  return record and record.surface_index == player.surface_index
+end
+
+local function print_reservations(print, player, caption, reservations)
+  for nest_id, items in pairs(reservations) do
+    if reservation_scope_matches_player(nest_id, player) then
+      for item_name, count in pairs(items) do
+        if count and count > 0 then
+          print({caption, nest_id, item_name, count})
+        end
+      end
+    end
+  end
+end
+
 local function output_for(command)
   if command.player_index then
     local player = game.get_player(command.player_index)
@@ -70,6 +97,35 @@ function debug.print_status(command)
       string.format("%.2f", effects.carrier_speed_multiplier),
       effects.nest_cargo_slots
     })
+  end
+
+  for id, job in pairs(data.jobs) do
+    if job_scope_matches_player(job, player) then
+      print({
+        "debug.biter-logistics-job",
+        id,
+        job.state or "-",
+        job.source_nest_id or "-",
+        job.destination_nest_id or "-",
+        job.carrier_id or "-",
+        job.item_name or "-",
+        job.requested_count or 0,
+        job.reserved_count or job.requested_count or 0,
+        job.picked_count or 0,
+        job.generator or "-",
+        job.failure_reason or "-"
+      })
+    end
+  end
+
+  print_reservations(print, player, "debug.biter-logistics-supply-reservation", data.supply_reservations)
+  print_reservations(print, player, "debug.biter-logistics-request-reservation", data.request_reservations)
+  local ok, reservation_issues = jobs.validate_reservations()
+  print({"debug.biter-logistics-reservation-validation", ok and "ok" or "failed"})
+  if not ok then
+    for _, issue in ipairs(reservation_issues) do
+      print({"debug.biter-logistics-reservation-issue", issue})
+    end
   end
 
   for id, record in pairs(data.nests) do
@@ -119,7 +175,8 @@ function debug.print_status(command)
         record.next_update_tick or "-",
         position_text(entity.position),
         record.command_target_id or "-",
-        position_text(record.command_position)
+        position_text(record.command_position),
+        record.food_energy or 0
       })
     end
   end
