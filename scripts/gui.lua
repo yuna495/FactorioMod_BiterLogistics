@@ -4,6 +4,7 @@ local nests = require("scripts.nests")
 local depots = require("scripts.depots")
 local carriers = require("scripts.carriers")
 local logistics = require("scripts.logistics")
+local food = require("scripts.food")
 
 local gui = {}
 
@@ -78,6 +79,16 @@ local function add_depot_status(frame, record)
 
   frame.add{type = "label", caption = {"gui.biter-logistics-status-carriers", carrier_count, carrier_capacity, active_count}}
   frame.add{type = "label", caption = {"gui.biter-logistics-depot-food-slots", constants.depot_slots.food_count}}
+  local food_flow = frame.add{type = "flow", direction = "horizontal"}
+  food_flow.add{type = "label", caption = {"gui.biter-logistics-accepted-food"}}
+  for _, entry in ipairs(food.accepted_for_force_name(record.force_name)) do
+    food_flow.add{
+      type = "sprite-button",
+      sprite = "item/" .. entry.name,
+      style = "slot_button",
+      tooltip = {"gui.biter-logistics-food-item-tooltip", "[item=" .. entry.name .. "]", entry.value}
+    }
+  end
   if carrier_count >= carrier_capacity and depots.count_carrier_items(record) > 0 then
     frame.add{type = "label", caption = {"gui.biter-logistics-status-carrier-capacity-reached"}}
   end

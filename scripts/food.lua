@@ -4,31 +4,51 @@ local networks = require("scripts.networks")
 
 local food = {}
 
+local base_food_order = {
+  constants.biomass_item,
+  "raw-fish"
+}
+
+local herbivorous_food_order = {
+  "wood"
+}
+
+local space_age_food_order = {
+  "yumako",
+  "jellynut",
+  "nutrients"
+}
+
 local function force_effects(force_name)
   return state.get().force_effects[force_name] or {}
 end
 
-function food.values_for_force_name(force_name)
-  local values = {}
-  for name, value in pairs(constants.food.values) do
+local function append_valid_food(result, values, order)
+  for _, name in ipairs(order) do
+    local value = values[name]
     if prototypes.item[name] then
-      values[name] = value
+      result[#result + 1] = {name = name, value = value}
     end
   end
+end
+
+function food.accepted_for_force_name(force_name)
+  local result = {}
+  append_valid_food(result, constants.food.values, base_food_order)
 
   if force_effects(force_name).herbivorous_biters then
-    for name, value in pairs(constants.food.herbivorous_values) do
-      if prototypes.item[name] then
-        values[name] = value
-      end
-    end
-    for name, value in pairs(constants.food.space_age_values) do
-      if prototypes.item[name] then
-        values[name] = value
-      end
-    end
+    append_valid_food(result, constants.food.herbivorous_values, herbivorous_food_order)
+    append_valid_food(result, constants.food.space_age_values, space_age_food_order)
   end
 
+  return result
+end
+
+function food.values_for_force_name(force_name)
+  local values = {}
+  for _, entry in ipairs(food.accepted_for_force_name(force_name)) do
+    values[entry.name] = entry.value
+  end
   return values
 end
 

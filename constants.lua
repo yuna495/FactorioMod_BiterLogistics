@@ -108,7 +108,7 @@ constants.ticks = {
   command_check_interval = 60,
   command_timeout = 60 * 60,
   range_visual_update_interval = 60,
-  diagnostic_message_cooldown = 60 * 30
+  diagnostic_message_cooldown = 60 * 5
 }
 
 constants.command = {

@@ -25,11 +25,21 @@ local function item_caption(item_name)
   return "[item=" .. item_name .. "]"
 end
 
-local function print_to_force(force_name, surface_index, message)
-  if not force_name then return end
+local function alert_icon(kind)
+  if kind == "food-shortage" then
+    return {type = "item", name = constants.depot_item}
+  end
+  if kind == "pathfinding-failed" then
+    return {type = "item", name = constants.carrier_item}
+  end
+  return {type = "item", name = constants.nest_item}
+end
+
+local function alert_to_force(force_name, surface_index, entity, icon, message)
+  if not force_name or not entity or not entity.valid then return end
   for _, player in pairs(game.connected_players) do
     if player.force.name == force_name and (not surface_index or player.surface_index == surface_index) then
-      player.print(message)
+      player.add_custom_alert(entity, icon, message, true)
     end
   end
 end
@@ -54,7 +64,7 @@ function diagnostics.notify(kind, scope, message, key_parts)
   if last_tick and game.tick - last_tick < cooldown then return end
 
   diagnostics_state.last_messages[key] = game.tick
-  print_to_force(scope.force_name, scope.surface_index, message)
+  alert_to_force(scope.force_name, scope.surface_index, scope.entity, alert_icon(kind), message)
 end
 
 function diagnostics.request_full(request, item_name)
