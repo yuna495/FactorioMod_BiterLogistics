@@ -7,6 +7,8 @@ constants.depot_item = "biter-logistics-fuel-depot"
 constants.carrier_unit = "biter-logistics-carrier-biter-unit"
 constants.carrier_item = "biter-logistics-carrier-biter"
 constants.biomass_item = "biter-logistics-biter-biomass"
+constants.control_combinator_entity = "biter-logistics-control-combinator"
+constants.control_combinator_item = "biter-logistics-control-combinator"
 
 constants.visuals = {
   spawner_mask_sprite = "biter-logistics-spawner-color-mask",
@@ -44,6 +46,7 @@ constants.research = {
   base = "biter-logistics",
   biomass_cultivation = "biter-logistics-biomass-cultivation",
   herbivorous_biters = "biter-logistics-herbivorous-biters",
+  circuit_control = "biter-logistics-circuit-control",
   carrier_capacity_prefix = "biter-logistics-carrier-capacity-",
   carrier_capacity_max_level = 4,
   carrier_speed_prefix = "biter-logistics-carrier-speed-",
@@ -72,6 +75,21 @@ constants.research = {
 constants.nest_modes = {
   supply = "supply",
   request = "request"
+}
+
+constants.request_modes = {
+  simple = "simple",
+  circuit = "circuit"
+}
+
+constants.request_thresholds = {
+  default = 50,
+  values = {25, 50, 75},
+  fractions = {
+    [25] = 0.25,
+    [50] = 0.5,
+    [75] = 0.75
+  }
 }
 
 constants.food = {
@@ -142,7 +160,9 @@ constants.gui = {
   name_field = "biter_logistics_nest_name",
   name_suffix_label = "biter_logistics_name_suffix",
   mode_dropdown = "biter_logistics_mode",
-  request_item_button = "biter_logistics_request_item"
+  request_type_dropdown = "biter_logistics_request_type",
+  request_item_button = "biter_logistics_request_item",
+  request_threshold_radio_prefix = "biter_logistics_threshold_"
 }
 
 constants.commands = {

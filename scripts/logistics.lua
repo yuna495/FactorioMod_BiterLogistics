@@ -11,19 +11,37 @@ local indexes = require("scripts.indexes")
 
 local logistics = {}
 
-local function enqueue_request_id(data, nest_id)
-  if not nest_id or data.request_queued[nest_id] then return end
-  data.request_queue[#data.request_queue + 1] = nest_id
-  data.request_queued[nest_id] = true
+local function request_key(nest_id, item_name)
+  return tostring(nest_id or "-") .. "|" .. tostring(item_name or "-")
+end
+
+local function entry_key(entry)
+  if type(entry) == "table" then
+    return entry.key or request_key(entry.nest_id, entry.item_name)
+  end
+  return tostring(entry)
+end
+
+local function enqueue_request_entry(data, nest_id, item_name, generator)
+  if not nest_id or not item_name then return end
+  local key = request_key(nest_id, item_name)
+  if data.request_queued[key] then return end
+  data.request_queue[#data.request_queue + 1] = {
+    key = key,
+    nest_id = nest_id,
+    item_name = item_name,
+    generator = generator
+  }
+  data.request_queued[key] = true
 end
 
 local function dequeue_current(data, index)
-  local id = table.remove(data.request_queue, index)
-  if id then data.request_queued[id] = nil end
+  local entry = table.remove(data.request_queue, index)
+  if entry then data.request_queued[entry_key(entry)] = nil end
   if data.request_cursor >= index then
     data.request_cursor = math.max(data.request_cursor - 1, 0)
   end
-  return id
+  return entry
 end
 
 local function stack_size(item_name)
@@ -31,17 +49,28 @@ local function stack_size(item_name)
   return prototype and prototype.stack_size or 0
 end
 
-function logistics.enqueue_request(nest_id)
-  enqueue_request_id(state.get(), nest_id)
+function logistics.enqueue_request(nest_id, item_name, generator)
+  local data = state.get()
+  if item_name then
+    enqueue_request_entry(data, nest_id, item_name, generator)
+    return
+  end
+
+  local record = nests.get(nest_id)
+  if nests.is_valid(record) then
+    nests.enqueue_request_entries(record, function(id, queued_item_name, queued_generator)
+      enqueue_request_entry(data, id, queued_item_name, queued_generator)
+    end)
+  end
 end
 
 function logistics.enqueue_all_requests()
   local data = state.get()
   for id, record in pairs(data.nests) do
-    if nests.is_valid(record)
-      and record.mode == constants.nest_modes.request
-      and record.request_item then
-      enqueue_request_id(data, id)
+    if nests.is_valid(record) and record.mode == constants.nest_modes.request then
+      nests.enqueue_request_entries(record, function(_, item_name, generator)
+        enqueue_request_entry(data, id, item_name, generator)
+      end)
     end
   end
 end
@@ -144,29 +173,44 @@ local function find_delivery_candidate(request, item_name)
   return best_source, best_depot, best_carrier, best_required_food, failure, food_shortage_depot
 end
 
-local function process_request(request_id, assign_callback)
+local function normalise_request_entry(entry)
+  if type(entry) == "table" then
+    return entry.nest_id, entry.item_name, entry.generator
+  end
+
+  local request = nests.get(entry)
+  return entry, request and request.request_item or nil, "simple-request"
+end
+
+local function process_request(entry, assign_callback)
+  local request_id, item_name, generator = normalise_request_entry(entry)
   local request = nests.get(request_id)
   if not nests.is_valid(request) then
     diagnostics.clear_for_request(request_id)
     return
   end
-  if request.mode ~= constants.nest_modes.request or not request.request_item then
-    diagnostics.clear_for_request(request_id)
+  if not nests.request_item_is_current(request, item_name) then
+    diagnostics.clear_for_request(request_id, item_name)
     return
   end
 
-  local item_name = request.request_item
   local check_tick = game.tick
   local item_stack_size = stack_size(item_name)
   if item_stack_size <= 0 then
-    diagnostics.clear_for_request(request.id)
+    diagnostics.clear_for_request(request.id, item_name)
     return
   end
 
   local free = nests.free_space_for_item(request, item_name)
   if free <= 0 then
     diagnostics.request_full(request, item_name)
-    diagnostics.clear_unseen_for_request(request.id, check_tick)
+    diagnostics.clear_unseen_for_request(request.id, check_tick, item_name)
+    return
+  end
+
+  local demand = nests.request_demand(request, item_name)
+  if demand <= 0 then
+    diagnostics.clear_for_request(request.id, item_name)
     return
   end
 
@@ -181,26 +225,26 @@ local function process_request(request_id, assign_callback)
     elseif failure == "food_shortage" then
       diagnostics.food_shortage(failure_depot, request, item_name)
     end
-    diagnostics.clear_unseen_for_request(request.id, check_tick)
+    diagnostics.clear_unseen_for_request(request.id, check_tick, item_name)
     return
   end
 
   local available = nests.available_supply_count(source, item_name)
   if available <= 0 then
-    diagnostics.clear_unseen_for_request(request.id, check_tick)
+    diagnostics.clear_unseen_for_request(request.id, check_tick, item_name)
     return
   end
 
   if carrier.food_energy < required_food and not depots.consume_food(depot, carrier, required_food) then
     diagnostics.food_shortage(depot, request, item_name)
-    diagnostics.clear_unseen_for_request(request.id, check_tick)
+    diagnostics.clear_unseen_for_request(request.id, check_tick, item_name)
     return
   end
 
   local capacity = research.carrier_capacity_for_force_name(request.force_name) * item_stack_size
-  local requested_count = math.min(free, available, capacity)
+  local requested_count = math.min(demand, available, capacity)
   if requested_count <= 0 then
-    diagnostics.clear_unseen_for_request(request.id, check_tick)
+    diagnostics.clear_unseen_for_request(request.id, check_tick, item_name)
     return
   end
 
@@ -211,7 +255,7 @@ local function process_request(request_id, assign_callback)
     home_depot_id = depot.id,
     item_name = item_name,
     requested_count = requested_count,
-    generator = "logistics-network"
+    generator = generator or nests.request_generator(request)
   }
 
   if assign_callback(carrier, job) then
@@ -219,7 +263,7 @@ local function process_request(request_id, assign_callback)
   else
     jobs.complete(job.id, "assign_failed")
   end
-  diagnostics.clear_unseen_for_request(request.id, check_tick)
+  diagnostics.clear_unseen_for_request(request.id, check_tick, item_name)
 end
 
 function logistics.process_batch(assign_callback)
@@ -233,10 +277,9 @@ function logistics.process_batch(assign_callback)
   while processed < constants.ticks.requests_per_update and examined < length do
     data.request_cursor = (data.request_cursor % #queue) + 1
     local index = data.request_cursor
-    local id = queue[index]
-    dequeue_current(data, index)
-    if id then
-      process_request(id, assign_callback)
+    local entry = dequeue_current(data, index)
+    if entry then
+      process_request(entry, assign_callback)
       processed = processed + 1
     end
     if #queue == 0 then break end

@@ -38,6 +38,7 @@ local depot_capacity_technologies = {
 }
 
 local tracked_technologies = {
+  [constants.research.circuit_control] = true,
   [constants.research.carrier_speed_leveled] = true,
   [constants.research.herbivorous_biters] = true
 }
@@ -61,6 +62,7 @@ local function default_effects(force)
     nest_capacity_level = 0,
     depot_range_level = 0,
     depot_carrier_capacity_level = 0,
+    circuit_control = false,
     herbivorous_biters = false
   }
 end
@@ -148,6 +150,7 @@ local function calculate_force_effects(force)
   )
 
   effects.herbivorous_biters = is_researched(force, constants.research.herbivorous_biters)
+  effects.circuit_control = is_researched(force, constants.research.circuit_control)
 
   return effects
 end
@@ -181,6 +184,10 @@ end
 
 function research.depot_carrier_capacity_for_force_name(force_name)
   return research.effects_for_force_name(force_name).depot_carrier_capacity
+end
+
+function research.circuit_control_for_force_name(force_name)
+  return research.effects_for_force_name(force_name).circuit_control
 end
 
 local function stack_definition(stack)

@@ -29,6 +29,15 @@ local carrier_item = {
   stack_size = 50
 }
 
+local control_combinator_item = table.deepcopy(data.raw["item"]["constant-combinator"])
+control_combinator_item.name = constants.control_combinator_item
+control_combinator_item.localised_name = {"item-name.biter-logistics-control-combinator"}
+control_combinator_item.localised_description = {"item-description.biter-logistics-control-combinator"}
+control_combinator_item.icon = "__base__/graphics/icons/small-worm.png"
+control_combinator_item.place_result = constants.control_combinator_entity
+control_combinator_item.subgroup = "circuit-network"
+control_combinator_item.order = "c[combinators]-e[biter-logistics-control-combinator]"
+
 local biomass_icon = "__BiterLogistics__/data/entities/Biter-Biomass/Biter-Biomass.png"
 
 local biomass_item = {
@@ -46,4 +55,4 @@ local biomass_item = {
   stack_size = 100
 }
 
-data:extend({nest_item, depot_item, carrier_item, biomass_item})
+data:extend({nest_item, depot_item, carrier_item, control_combinator_item, biomass_item})

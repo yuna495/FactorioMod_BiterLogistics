@@ -244,6 +244,20 @@ function diagnostics.destination_waiting(carrier, destination, item_name)
   )
 end
 
+function diagnostics.no_control_combinator(request)
+  diagnostics.notify(
+    "no-control-combinator",
+    request,
+    {
+      "diagnostic.biter-logistics-no-control-combinator",
+      record_label("nest", request),
+      gps(request)
+    },
+    {request and request.id},
+    {request_id = request and request.id}
+  )
+end
+
 function diagnostics.clear_for_request(request_id, item_name)
   if not request_id then return end
   clear_matching(function(record)
@@ -251,10 +265,26 @@ function diagnostics.clear_for_request(request_id, item_name)
   end)
 end
 
-function diagnostics.clear_unseen_for_request(request_id, seen_tick)
+function diagnostics.clear_item_alerts_for_request(request_id)
   if not request_id then return end
   clear_matching(function(record)
-    return record.request_id == request_id and record.last_seen_tick ~= seen_tick
+    return record.request_id == request_id and record.item_name ~= nil
+  end)
+end
+
+function diagnostics.clear_no_control_combinator(request_id)
+  if not request_id then return end
+  clear_matching(function(record)
+    return record.kind == "no-control-combinator" and record.request_id == request_id
+  end)
+end
+
+function diagnostics.clear_unseen_for_request(request_id, seen_tick, item_name)
+  if not request_id then return end
+  clear_matching(function(record)
+    return record.request_id == request_id
+      and record.last_seen_tick ~= seen_tick
+      and (not item_name or record.item_name == item_name)
   end)
 end
 

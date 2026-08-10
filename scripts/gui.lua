@@ -4,6 +4,7 @@ local nests = require("scripts.nests")
 local depots = require("scripts.depots")
 local logistics = require("scripts.logistics")
 local food = require("scripts.food")
+local research = require("scripts.research")
 
 local gui = {}
 
@@ -95,6 +96,8 @@ local function add_depot_status(frame, record)
 end
 
 local function add_nest_controls(frame, record)
+  local circuit_unlocked = research.circuit_control_for_force_name(record.force_name)
+  local request_mode = record.request_mode or constants.request_modes.simple
   local mode_flow = frame.add{type = "flow", direction = "horizontal"}
   mode_flow.add{type = "label", caption = {"gui.biter-logistics-mode"}}
   mode_flow.add{
@@ -107,6 +110,20 @@ local function add_nest_controls(frame, record)
     selected_index = record.mode == constants.nest_modes.request and 2 or 1
   }
 
+  if circuit_unlocked and record.mode == constants.nest_modes.request then
+    local type_flow = frame.add{type = "flow", direction = "horizontal"}
+    type_flow.add{type = "label", caption = {"gui.biter-logistics-request-type"}}
+    type_flow.add{
+      type = "drop-down",
+      name = constants.gui.request_type_dropdown,
+      items = {
+        {"gui.biter-logistics-request-type-simple"},
+        {"gui.biter-logistics-request-type-circuit"}
+      },
+      selected_index = request_mode == constants.request_modes.circuit and 2 or 1
+    }
+  end
+
   local request_flow = frame.add{type = "flow", direction = "horizontal"}
   request_flow.add{type = "label", caption = {"gui.biter-logistics-request-item"}}
   local button = request_flow.add{
@@ -117,6 +134,32 @@ local function add_nest_controls(frame, record)
   }
   button.elem_value = record.request_item
   request_flow.visible = record.mode == constants.nest_modes.request
+    and (not circuit_unlocked or request_mode == constants.request_modes.simple)
+
+  if circuit_unlocked
+    and record.mode == constants.nest_modes.request
+    and request_mode == constants.request_modes.circuit then
+    local threshold_flow = frame.add{type = "flow", direction = "horizontal"}
+    threshold_flow.add{type = "label", caption = {"gui.biter-logistics-request-threshold"}}
+    local selected_threshold = record.request_threshold or constants.request_thresholds.default
+    for _, threshold in ipairs(constants.request_thresholds.values) do
+      threshold_flow.add{
+        type = "radiobutton",
+        name = constants.gui.request_threshold_radio_prefix .. threshold,
+        caption = threshold .. "%",
+        state = threshold == selected_threshold
+      }
+    end
+
+    local status = nests.circuit_status(record)
+    frame.add{
+      type = "label",
+      caption = status.connected_count > 0
+        and {"gui.biter-logistics-circuit-status-connected"}
+        or {"gui.biter-logistics-circuit-status-not-connected"}
+    }
+    frame.add{type = "label", caption = {"gui.biter-logistics-circuit-target-count", status.target_count}}
+  end
 end
 
 function gui.open_nest(player, record)
@@ -250,17 +293,27 @@ function gui.on_text_changed(event)
 end
 
 function gui.on_selection_state_changed(event)
-  if not valid(event.element) or event.element.name ~= constants.gui.mode_dropdown then return end
+  if not valid(event.element) then return end
   local player = game.get_player(event.player_index)
   local pstate = state.get().players[event.player_index]
   if not player or not pstate or pstate.open_type ~= "nest" or not pstate.open_nest_id then return end
 
-  local mode = event.element.selected_index == 2 and constants.nest_modes.request or constants.nest_modes.supply
-  nests.set_mode(pstate.open_nest_id, mode)
-  if mode == constants.nest_modes.request then
-    logistics.enqueue_request(pstate.open_nest_id)
+  if event.element.name == constants.gui.mode_dropdown then
+    local mode = event.element.selected_index == 2 and constants.nest_modes.request or constants.nest_modes.supply
+    nests.set_mode(pstate.open_nest_id, mode)
+    if mode == constants.nest_modes.request then
+      logistics.enqueue_request(pstate.open_nest_id)
+    end
+    gui.refresh(player)
+    return
   end
-  gui.refresh(player)
+
+  if event.element.name == constants.gui.request_type_dropdown then
+    local request_mode = event.element.selected_index == 2 and constants.request_modes.circuit or constants.request_modes.simple
+    nests.set_request_mode(pstate.open_nest_id, request_mode)
+    logistics.enqueue_request(pstate.open_nest_id)
+    gui.refresh(player)
+  end
 end
 
 function gui.on_elem_changed(event)
@@ -271,6 +324,22 @@ function gui.on_elem_changed(event)
 
   nests.set_request_item(pstate.open_nest_id, event.element.elem_value)
   logistics.enqueue_request(pstate.open_nest_id)
+end
+
+function gui.on_checked_state_changed(event)
+  if not valid(event.element) or not event.element.state then return end
+  local name = event.element.name or ""
+  local prefix = constants.gui.request_threshold_radio_prefix
+  if name:sub(1, #prefix) ~= prefix then return end
+
+  local player = game.get_player(event.player_index)
+  local pstate = state.get().players[event.player_index]
+  if not player or not pstate or pstate.open_type ~= "nest" or not pstate.open_nest_id then return end
+
+  local threshold = tonumber(name:sub(#prefix + 1))
+  nests.set_request_threshold(pstate.open_nest_id, threshold)
+  logistics.enqueue_request(pstate.open_nest_id)
+  gui.refresh(player)
 end
 
 return gui

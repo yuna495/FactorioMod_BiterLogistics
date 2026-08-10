@@ -1,7 +1,46 @@
 local constants = require("constants")
 
 local nest_picture_scale = 0.4
+local control_combinator_picture_scale = 0.3
 local neutral_mask_tint = {r = 0.72, g = 0.72, b = 0.72, a = 0.45}
+local control_combinator_mask_tint = {r = 0.7, g = 1, b = 0.3, a = 0.5}
+
+local function control_combinator_worm_sprite()
+  return {
+    layers = {
+      {
+        filename = "__base__/graphics/entity/worm/worm-folded.png",
+        width = 130,
+        height = 120,
+        scale = control_combinator_picture_scale,
+        shift = util.by_pixel(0, 4),
+        surface = "nauvis",
+        usage = "enemy"
+      },
+      {
+        filename = "__base__/graphics/entity/worm/worm-folded-mask.png",
+        width = 130,
+        height = 108,
+        scale = control_combinator_picture_scale,
+        shift = util.by_pixel(0, 7),
+        tint = control_combinator_mask_tint,
+        flags = {"mask"},
+        surface = "nauvis",
+        usage = "enemy"
+      },
+      {
+        filename = "__base__/graphics/entity/worm/worm-folded-shadow.png",
+        width = 116,
+        height = 68,
+        scale = control_combinator_picture_scale,
+        shift = util.by_pixel(5, -4),
+        draw_as_shadow = true,
+        surface = "nauvis",
+        usage = "enemy"
+      }
+    }
+  }
+end
 
 local nest = table.deepcopy(data.raw["container"]["steel-chest"])
 nest.name = constants.nest_entity
@@ -112,4 +151,23 @@ carrier.min_pursue_time = 0
 carrier.max_pursue_distance = 0
 carrier.attack_parameters.damage_modifier = 0
 
-data:extend({nest, depot, carrier})
+local control_combinator = table.deepcopy(data.raw["constant-combinator"]["constant-combinator"])
+control_combinator.name = constants.control_combinator_entity
+control_combinator.localised_name = {"entity-name.biter-logistics-control-combinator"}
+control_combinator.localised_description = {"entity-description.biter-logistics-control-combinator"}
+control_combinator.icon = "__base__/graphics/icons/small-worm.png"
+control_combinator.minable = {mining_time = 0.1, result = constants.control_combinator_item}
+control_combinator.fast_replaceable_group = nil
+control_combinator.next_upgrade = nil
+control_combinator.corpse = "small-worm-corpse-burrowed"
+control_combinator.dying_explosion = "small-worm-die"
+local worm_sprite = control_combinator_worm_sprite()
+control_combinator.sprites = {
+  north = worm_sprite,
+  east = worm_sprite,
+  south = worm_sprite,
+  west = worm_sprite
+}
+control_combinator.icon_draw_specification = {scale = 0.7}
+
+data:extend({nest, depot, carrier, control_combinator})

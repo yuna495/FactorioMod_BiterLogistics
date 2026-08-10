@@ -51,5 +51,18 @@ data:extend({
       {type = "item", name = "electronic-circuit", amount = 1}
     },
     results = {{type = "item", name = constants.carrier_item, amount = 1}}
+  },
+  {
+    type = "recipe",
+    name = constants.control_combinator_item,
+    enabled = false,
+    energy_required = 2,
+    ingredients = {
+      {type = "item", name = constants.biomass_item, amount = 1},
+      {type = "item", name = "electronic-circuit", amount = 5},
+      {type = "item", name = "copper-cable", amount = 5},
+      {type = "item", name = "steel-plate", amount = 2}
+    },
+    results = {{type = "item", name = constants.control_combinator_item, amount = 1}}
   }
 })

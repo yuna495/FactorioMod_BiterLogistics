@@ -101,6 +101,18 @@ local function migrate(data)
     data.diagnostics.active_alerts = data.diagnostics.active_alerts or {}
     data.schema_version = 10
   end
+
+  if data.schema_version < 11 then
+    for _, nest in pairs(data.nests or {}) do
+      nest.request_mode = nest.request_mode or "simple"
+      nest.request_threshold = nest.request_threshold or 50
+      nest.circuit_requests = nest.circuit_requests or {}
+    end
+    data.request_queue = {}
+    data.request_queued = {}
+    data.request_cursor = 0
+    data.schema_version = 11
+  end
 end
 
 function state.get()

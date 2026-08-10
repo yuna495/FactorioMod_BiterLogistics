@@ -40,6 +40,7 @@ local technology_icons = {
   logistics = technology_icon_path .. "biter-logistics.png",
   biomass_cultivation = technology_icon_path .. "biter-logistics-biomass-cultivation.png",
   herbivorous_biters = technology_icon_path .. "biter-logistics-herbivorous-biters.png",
+  circuit_control = technology_icon_path .. "biter-logistics-circuit-control.png",
   carrier_capacity = technology_icon_path .. "biter-logistics-carrier-capacity.png",
   carrier_speed = technology_icon_path .. "biter-logistics-carrier-speed.png",
   nest_capacity = technology_icon_path .. "biter-logistics-nest-capacity.png",
@@ -90,7 +91,8 @@ local effect_descriptions = {
   carrier_capacity = {"modifier-description.biter-logistics-carrier-capacity", "1"},
   carrier_speed_20 = {"modifier-description.biter-logistics-carrier-speed", "20"},
   carrier_speed_10 = {"modifier-description.biter-logistics-carrier-speed", "10"},
-  depot_capacity = {"modifier-description.biter-logistics-depot-capacity", "1"}
+  depot_capacity = {"modifier-description.biter-logistics-depot-capacity", "1"},
+  circuit_control = {"modifier-description.biter-logistics-circuit-control"}
 }
 
 local logistics_tech = {
@@ -125,6 +127,7 @@ local speed_icons = single_icon(technology_icons.carrier_speed)
 local nest_capacity_icons = single_icon(technology_icons.nest_capacity)
 local biomass_icons = single_icon(technology_icons.biomass_cultivation)
 local herbivorous_icons = single_icon(technology_icons.herbivorous_biters)
+local circuit_control_icons = single_icon(technology_icons.circuit_control)
 local depot_range_icons = single_icon(technology_icons.depot_range)
 local depot_capacity_icons = single_icon(technology_icons.depot_capacity)
 
@@ -163,6 +166,26 @@ technologies[#technologies + 1] = {
     time = 30
   },
   order = "c-k-a-c[biter-logistics-herbivorous-biters]"
+}
+
+technologies[#technologies + 1] = {
+  type = "technology",
+  name = constants.research.circuit_control,
+  icons = circuit_control_icons,
+  effects = {
+    {
+      type = "unlock-recipe",
+      recipe = constants.control_combinator_item
+    },
+    nothing_effect(effect_descriptions.circuit_control, technology_icons.circuit_control)
+  },
+  prerequisites = {constants.research.base, "chemical-science-pack"},
+  unit = {
+    count = 300,
+    ingredients = science.chemical,
+    time = 30
+  },
+  order = "c-k-a-d[biter-logistics-circuit-control]"
 }
 
 for level, spec in ipairs({

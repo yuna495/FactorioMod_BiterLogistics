@@ -4,6 +4,7 @@ local research = require("scripts.research")
 local jobs = require("scripts.jobs")
 local visuals = require("scripts.visuals")
 local indexes = require("scripts.indexes")
+local diagnostics = require("scripts.diagnostics")
 
 local nests = {}
 
@@ -19,6 +20,31 @@ local function enqueue(data, id)
   if data.nest_queued[id] then return end
   data.nest_queue[#data.nest_queue + 1] = id
   data.nest_queued[id] = true
+end
+
+local function request_entry_nest_id(entry)
+  if type(entry) == "table" then
+    return entry.nest_id
+  end
+  return entry
+end
+
+local function clear_request_queue_for_nest(data, id)
+  for index = #data.request_queue, 1, -1 do
+    if request_entry_nest_id(data.request_queue[index]) == id then
+      table.remove(data.request_queue, index)
+      if data.request_cursor >= index then
+        data.request_cursor = math.max(data.request_cursor - 1, 0)
+      end
+    end
+  end
+
+  local prefix = tostring(id) .. "|"
+  for key in pairs(data.request_queued) do
+    if key == id or key == tostring(id) or tostring(key):sub(1, #prefix) == prefix then
+      data.request_queued[key] = nil
+    end
+  end
 end
 
 local function dequeue(data, id)
@@ -94,6 +120,150 @@ local function item_stack_size(name)
   return prototype and prototype.stack_size or 0
 end
 
+local function normalise_request_threshold(value)
+  value = tonumber(value) or constants.request_thresholds.default
+  if constants.request_thresholds.fractions[value] then return value end
+  return constants.request_thresholds.default
+end
+
+local function ensure_request_fields(record)
+  record.request_mode = record.request_mode or constants.request_modes.simple
+  if record.request_mode ~= constants.request_modes.simple
+    and record.request_mode ~= constants.request_modes.circuit then
+    record.request_mode = constants.request_modes.simple
+  end
+  record.request_threshold = normalise_request_threshold(record.request_threshold)
+  record.circuit_requests = record.circuit_requests or {}
+end
+
+local function wire_connector_owner(connection)
+  local connector = connection and (connection.target or connection)
+  return connector and connector.owner or nil
+end
+
+local function connected_wire_connections(entity)
+  if not entity.get_wire_connectors then return {} end
+  local ok, connectors = pcall(function()
+    return entity.get_wire_connectors(false)
+  end)
+  if not ok or not connectors then return {} end
+
+  local connections = {}
+  for _, connector in pairs(connectors) do
+    for _, connection in pairs(connector.connections or connector.real_connections or {}) do
+      connections[#connections + 1] = connection
+    end
+  end
+  return connections
+end
+
+local function connected_control_combinators(record)
+  local entities = {}
+  local seen = {}
+  if not nests.is_valid(record) then return entities end
+
+  for _, connection in pairs(connected_wire_connections(record.entity)) do
+    local owner = wire_connector_owner(connection)
+    if owner
+      and owner.valid
+      and owner.name == constants.control_combinator_entity
+      and owner.force.name == record.force_name
+      and owner.surface_index == record.surface_index
+      and owner.unit_number
+      and not seen[owner.unit_number] then
+      seen[owner.unit_number] = true
+      entities[#entities + 1] = owner
+    end
+  end
+
+  return entities
+end
+
+local function filter_quality_name(signal)
+  if not signal then return nil end
+  local quality = signal.quality
+  if type(quality) == "table" then
+    return quality.name
+  end
+  return quality
+end
+
+local function count_signal_target(filter)
+  if not filter or not filter.value then return nil, 0 end
+  local signal = filter.value
+  local quality = filter_quality_name(signal)
+  local count = math.floor(tonumber(filter.min) or 0)
+  if signal.type ~= "item" then return nil, 0 end
+  if quality and quality ~= "normal" then return nil, 0 end
+  if count >= 0 then return nil, 0 end
+  if not signal.name or not prototypes.item[signal.name] then return nil, 0 end
+  return signal.name, math.abs(count)
+end
+
+local function read_control_combinator_targets(entity)
+  local targets = {}
+  if not valid(entity) then return targets end
+  local behavior = entity.get_control_behavior()
+  if not behavior or behavior.enabled == false then return targets end
+
+  local sections = {}
+  if behavior.get_section then
+    local sections_count = behavior.sections_count or 1
+    for section_index = 1, sections_count do
+      local ok_section, section = pcall(function()
+        return behavior.get_section(section_index)
+      end)
+      if ok_section and section then
+        sections[#sections + 1] = section
+      end
+    end
+  elseif behavior.sections and behavior.sections.get_section then
+    local sections_object = behavior.sections
+    local sections_count = sections_object.sections_count or 0
+    for section_index = 1, sections_count do
+      local ok_section, section = pcall(function()
+        return sections_object.get_section(section_index)
+      end)
+      if ok_section and section then
+        sections[#sections + 1] = section
+      end
+    end
+  end
+
+  for _, section in ipairs(sections) do
+    if section.valid and section.active ~= false and section.get_slot then
+      local filters_count = section.filters_count or 0
+      for slot_index = 1, filters_count do
+        local ok_slot, filter = pcall(function()
+          return section.get_slot(slot_index)
+        end)
+        if ok_slot then
+          local item_name, target = count_signal_target(filter)
+          if item_name and target > 0 then
+            targets[item_name] = (targets[item_name] or 0) + target
+          end
+        end
+      end
+    end
+  end
+
+  return targets
+end
+
+local function calculate_circuit_targets(record)
+  local targets = {}
+  local combinators = connected_control_combinators(record)
+
+  for _, combinator in ipairs(combinators) do
+    local combinator_targets = read_control_combinator_targets(combinator)
+    for item_name, target in pairs(combinator_targets) do
+      targets[item_name] = (targets[item_name] or 0) + target
+    end
+  end
+
+  return targets, #combinators
+end
+
 local function insert_into_cargo_slot(stack, cargo)
   if not stack or not stack.valid or not cargo or cargo.count <= 0 then return 0 end
 
@@ -146,6 +316,9 @@ function nests.register(entity)
       id = id,
       unit_number = entity.unit_number,
       mode = constants.nest_modes.supply,
+      request_mode = constants.request_modes.simple,
+      request_threshold = constants.request_thresholds.default,
+      circuit_requests = {},
       request_quality = "normal"
     }
     data.nests[id] = record
@@ -159,6 +332,7 @@ function nests.register(entity)
   record.position = copy_position(entity.position)
   record.mode = record.mode or constants.nest_modes.supply
   record.request_quality = record.request_quality or "normal"
+  ensure_request_fields(record)
   indexes.register_nest(record)
 
   nests.configure_inventory(entity)
@@ -279,7 +453,30 @@ function nests.set_mode(id, mode)
     return false
   end
   record.mode = mode
+  ensure_request_fields(record)
+  if mode ~= constants.nest_modes.request then
+    diagnostics.clear_for_request(record.id)
+  end
   visuals.update_nest(record)
+  return true
+end
+
+function nests.set_request_mode(id, request_mode)
+  local record = nests.get(id)
+  if not nests.is_valid(record) then return false end
+  ensure_request_fields(record)
+  if request_mode ~= constants.request_modes.simple and request_mode ~= constants.request_modes.circuit then
+    return false
+  end
+  if request_mode == constants.request_modes.circuit
+    and not research.circuit_control_for_force_name(record.force_name) then
+    return false
+  end
+  record.request_mode = request_mode
+  diagnostics.clear_for_request(record.id)
+  if request_mode == constants.request_modes.simple then
+    diagnostics.clear_no_control_combinator(record.id)
+  end
   return true
 end
 
@@ -287,8 +484,19 @@ function nests.set_request_item(id, item_name)
   local record = nests.get(id)
   if not nests.is_valid(record) then return false end
   if item_name and not prototypes.item[item_name] then return false end
+  ensure_request_fields(record)
   record.request_item = item_name
   record.request_quality = "normal"
+  diagnostics.clear_for_request(record.id)
+  return true
+end
+
+function nests.set_request_threshold(id, threshold)
+  local record = nests.get(id)
+  if not nests.is_valid(record) then return false end
+  ensure_request_fields(record)
+  local normalised = normalise_request_threshold(threshold)
+  record.request_threshold = normalised
   return true
 end
 
@@ -317,6 +525,131 @@ function nests.count_item(record, item_name)
     end
   end)
   return total
+end
+
+function nests.refresh_circuit_requests(record)
+  if not nests.is_valid(record) then
+    return {connected_count = 0, target_count = 0}
+  end
+  ensure_request_fields(record)
+  if record.request_mode ~= constants.request_modes.circuit
+    or not research.circuit_control_for_force_name(record.force_name) then
+    record.circuit_requests = {}
+    return {connected_count = 0, target_count = 0}
+  end
+
+  local targets, connected_count = calculate_circuit_targets(record)
+  local threshold_fraction = constants.request_thresholds.fractions[record.request_threshold] or 0.5
+  local next_requests = {}
+  local target_count = 0
+
+  for item_name, target in pairs(targets) do
+    if target > 0 then
+      local previous = record.circuit_requests[item_name] or {}
+      local stock = nests.count_item(record, item_name)
+      local active = previous.active == true
+      if active then
+        active = stock < target
+      else
+        active = stock <= target * threshold_fraction
+      end
+      next_requests[item_name] = {
+        target = target,
+        active = active
+      }
+      target_count = target_count + 1
+    end
+  end
+
+  for item_name in pairs(record.circuit_requests or {}) do
+    if not next_requests[item_name] then
+      diagnostics.clear_for_request(record.id, item_name)
+    end
+  end
+
+  record.circuit_requests = next_requests
+  return {connected_count = connected_count, target_count = target_count}
+end
+
+function nests.circuit_status(record)
+  return nests.refresh_circuit_requests(record)
+end
+
+function nests.request_generator(record)
+  ensure_request_fields(record)
+  if record.request_mode == constants.request_modes.circuit then
+    return "circuit-request"
+  end
+  return "simple-request"
+end
+
+function nests.request_item_is_current(record, item_name)
+  if not item_name or not nests.is_valid(record) or record.mode ~= constants.nest_modes.request then return false end
+  ensure_request_fields(record)
+
+  if record.request_mode == constants.request_modes.circuit then
+    if not research.circuit_control_for_force_name(record.force_name) then return false end
+    nests.refresh_circuit_requests(record)
+    local request = record.circuit_requests[item_name]
+    return request and request.active == true and request.target > 0 or false
+  end
+
+  return record.request_item == item_name
+end
+
+function nests.request_demand(record, item_name)
+  if not nests.request_item_is_current(record, item_name) then return 0 end
+  ensure_request_fields(record)
+
+  local free = nests.free_space_for_item(record, item_name)
+  if free <= 0 then return 0 end
+
+  if record.request_mode == constants.request_modes.circuit then
+    local request = record.circuit_requests[item_name]
+    if not request or not request.target or request.target <= 0 then return 0 end
+    local incoming = jobs.request_reserved_count(record.id, item_name)
+    local target_gap = math.max(0, request.target - nests.count_item(record, item_name) - incoming)
+    return math.min(free, target_gap)
+  end
+
+  return free
+end
+
+function nests.enqueue_request_entries(record, request_callback)
+  if not request_callback or not nests.is_valid(record) or record.mode ~= constants.nest_modes.request then return end
+  ensure_request_fields(record)
+
+  if record.request_mode == constants.request_modes.circuit then
+    if not research.circuit_control_for_force_name(record.force_name) then
+      record.circuit_requests = {}
+      diagnostics.clear_no_control_combinator(record.id)
+      return
+    end
+
+    local status = nests.refresh_circuit_requests(record)
+    if status.connected_count <= 0 then
+      diagnostics.clear_item_alerts_for_request(record.id)
+      diagnostics.no_control_combinator(record)
+      return
+    end
+    diagnostics.clear_no_control_combinator(record.id)
+
+    local item_names = {}
+    for item_name, request in pairs(record.circuit_requests) do
+      if request.active and request.target > 0 then
+        item_names[#item_names + 1] = item_name
+      end
+    end
+    table.sort(item_names)
+    for _, item_name in ipairs(item_names) do
+      request_callback(record.id, item_name, "circuit-request")
+    end
+    return
+  end
+
+  if record.request_item then
+    request_callback(record.id, record.request_item, "simple-request")
+  end
 end
 
 function nests.available_supply_count(record, item_name)
@@ -391,7 +724,8 @@ function nests.remove(id)
     data.destroy_registrations[record.destroy_registration_number] = nil
   end
 
-  data.request_queued[id] = nil
+  clear_request_queue_for_nest(data, id)
+  diagnostics.clear_for_request(id)
   indexes.unregister_nest(record)
   visuals.destroy(record)
   data.nests[id] = nil
@@ -413,9 +747,7 @@ function nests.process_batch(request_callback)
     if record then
       if nests.is_valid(record) then
         nests.configure_inventory(record.entity)
-        if request_callback and record.mode == constants.nest_modes.request and record.request_item then
-          request_callback(record.id)
-        end
+        nests.enqueue_request_entries(record, request_callback)
       else
         nests.remove(id)
       end

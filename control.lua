@@ -127,6 +127,7 @@ script.on_event(defines.events.on_gui_closed, gui.on_closed)
 script.on_event(defines.events.on_gui_text_changed, gui.on_text_changed)
 script.on_event(defines.events.on_gui_selection_state_changed, gui.on_selection_state_changed)
 script.on_event(defines.events.on_gui_elem_changed, gui.on_elem_changed)
+script.on_event(defines.events.on_gui_checked_state_changed, gui.on_checked_state_changed)
 
 script.on_event(defines.events.on_selected_entity_changed, function(event)
   range_visuals.refresh_player_index(event.player_index)
