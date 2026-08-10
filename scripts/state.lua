@@ -75,6 +75,14 @@ local function migrate(data)
     end
     data.schema_version = 6
   end
+
+  if data.schema_version < 7 then
+    for _, effects in pairs(data.force_effects or {}) do
+      effects.depot_carrier_capacity_level = effects.depot_carrier_capacity_level or 0
+      effects.depot_carrier_capacity = effects.depot_carrier_capacity or 1
+    end
+    data.schema_version = 7
+  end
 end
 
 function state.get()

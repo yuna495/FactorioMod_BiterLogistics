@@ -1,6 +1,7 @@
 local constants = require("constants")
 local state = require("scripts.state")
 local food = require("scripts.food")
+local research = require("scripts.research")
 local visuals = require("scripts.visuals")
 
 local depots = {}
@@ -130,6 +131,37 @@ function depots.count_carrier_items(record)
   return 0
 end
 
+function depots.assigned_carrier_count(record)
+  if not record then return 0 end
+  local data = state.get()
+  local count = 0
+  record.carrier_ids = record.carrier_ids or {}
+  for id in pairs(record.carrier_ids) do
+    local carrier = data.carriers[id]
+    if carrier and carrier.home_depot_id == record.id and carrier.entity and carrier.entity.valid then
+      count = count + 1
+    else
+      record.carrier_ids[id] = nil
+    end
+  end
+  return count
+end
+
+function depots.carrier_capacity(record)
+  local force_name = record and record.force_name or nil
+  if not force_name and record and valid(record.entity) then
+    force_name = record.entity.force.name
+  end
+  return math.max(
+    constants.research.default_depot_carrier_capacity,
+    research.depot_carrier_capacity_for_force_name(force_name)
+  )
+end
+
+function depots.carrier_capacity_reached(record)
+  return depots.assigned_carrier_count(record) >= depots.carrier_capacity(record)
+end
+
 local function process_carrier_slot(record, spawn_callback)
   if not depots.is_valid(record) then return end
   local inventory = get_inventory(record)
@@ -137,6 +169,7 @@ local function process_carrier_slot(record, spawn_callback)
 
   local stack = inventory[constants.depot_slots.carrier]
   if not stack or not stack.valid or not stack.valid_for_read or stack.name ~= constants.carrier_item then return end
+  if depots.carrier_capacity_reached(record) then return end
 
   local quality = stack_quality_name(stack)
   if spawn_callback(record, quality) then

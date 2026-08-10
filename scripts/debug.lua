@@ -96,7 +96,8 @@ function debug.print_status(command)
       effects.carrier_capacity_stacks,
       string.format("%.2f", effects.carrier_speed_multiplier),
       effects.nest_cargo_slots,
-      effects.depot_range
+      effects.depot_range,
+      effects.depot_carrier_capacity
     })
   end
 
@@ -147,13 +148,14 @@ function debug.print_status(command)
   for id, record in pairs(data.depots) do
     if depots.is_valid(record)
       and (not player or record.surface_index == player.surface_index) then
-      local carrier_count = record.carrier_ids and count_pairs(record.carrier_ids) or 0
+      local carrier_count = depots.assigned_carrier_count(record)
       print({
         "debug.biter-logistics-depot",
         id,
         record.display_name or "-",
         depots.count_carrier_items(record),
         carrier_count,
+        depots.carrier_capacity(record),
         depots.available_food_energy(record)
       })
     end

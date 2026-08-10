@@ -53,16 +53,20 @@ constants.research = {
   nest_capacity_prefix = "biter-logistics-nest-capacity-",
   depot_range_prefix = "biter-logistics-depot-range-",
   depot_range_max_level = 5,
+  depot_capacity_prefix = "biter-logistics-depot-capacity-",
+  depot_capacity_max_level = 4,
   default_carrier_capacity_stacks = 1,
   default_carrier_speed_multiplier = 1,
   default_nest_cargo_slots = 10,
-  default_depot_range = 24,
-  depot_range_by_level = {32, 40, 56, 64, 72},
+  default_depot_range = 32,
+  default_depot_carrier_capacity = 1,
+  depot_range_by_level = {40, 48, 56, 64, 72},
   base_carrier_speed = 0.2,
   carrier_speed_finite_bonus = 0.2,
   carrier_speed_leveled_bonus = 0.1,
   max_carrier_speed_multiplier = 3,
-  max_depot_range = 72
+  max_depot_range = 72,
+  max_depot_carrier_capacity = 5
 }
 
 constants.nest_modes = {

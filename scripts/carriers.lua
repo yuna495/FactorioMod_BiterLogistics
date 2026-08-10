@@ -784,6 +784,11 @@ function carriers.validate()
       food.ensure_carrier_fields(record)
       normalise_cargo_slots(record)
       research.apply_to_carrier(record)
+      local home = depots.get(record.home_depot_id)
+      if home then
+        home.carrier_ids = home.carrier_ids or {}
+        home.carrier_ids[id] = true
+      end
 
       local job = record.job_id and jobs.get(record.job_id)
       if record.job_id and not job then
@@ -808,7 +813,7 @@ end
 function carriers.count_for_depot(depot_id)
   local count = 0
   for _, record in pairs(state.get().carriers) do
-    if record.home_depot_id == depot_id then
+    if record.home_depot_id == depot_id and record.entity and record.entity.valid then
       count = count + 1
     end
   end
@@ -818,7 +823,7 @@ end
 function carriers.active_for_depot(depot_id)
   local count = 0
   for _, record in pairs(state.get().carriers) do
-    if record.home_depot_id == depot_id and record.state ~= "idle" then
+    if record.home_depot_id == depot_id and record.entity and record.entity.valid and record.state ~= "idle" then
       count = count + 1
     end
   end

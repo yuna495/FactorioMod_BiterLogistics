@@ -72,12 +72,15 @@ local function add_nest_status(frame, record)
 end
 
 local function add_depot_status(frame, record)
-  local carrier_count = carriers.count_for_depot(record.id)
+  local carrier_count = depots.assigned_carrier_count(record)
+  local carrier_capacity = depots.carrier_capacity(record)
   local active_count = carriers.active_for_depot(record.id)
 
-  frame.add{type = "label", caption = {"gui.biter-logistics-depot-carrier-slot"}}
+  frame.add{type = "label", caption = {"gui.biter-logistics-status-carriers", carrier_count, carrier_capacity, active_count}}
   frame.add{type = "label", caption = {"gui.biter-logistics-depot-food-slots", constants.depot_slots.food_count}}
-  frame.add{type = "label", caption = {"gui.biter-logistics-status-carriers", carrier_count, active_count}}
+  if carrier_count >= carrier_capacity and depots.count_carrier_items(record) > 0 then
+    frame.add{type = "label", caption = {"gui.biter-logistics-status-carrier-capacity-reached"}}
+  end
   frame.add{type = "label", caption = {"gui.biter-logistics-food-energy", depots.available_food_energy(record)}}
 end
 

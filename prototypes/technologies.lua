@@ -33,37 +33,26 @@ local science = {
   }
 }
 
-local has_space_age = mods and mods["space-age"]
-local biter_icon = "__base__/graphics/icons/medium-biter.png"
-local biomass_icon = "__base__/graphics/icons/medium-biter.png"
-local nest_icon = has_space_age
-  and "__space-age__/graphics/technology/captive-biter-spawner.png"
-  or "__base__/graphics/icons/biter-spawner.png"
-local nest_icon_size = has_space_age and 256 or 64
-local nest_icon_scale = has_space_age and nil or 1.45
-local biter_icon_size = 64
-local biter_icon_scale = 1.25
+local technology_icon_size = 128
+local technology_icon_path = "__BiterLogistics__/data/technologies/"
 
-local function icon_layer(icon, icon_size, scale, shift)
-  local layer = {
-    icon = icon,
-    icon_size = icon_size
-  }
-  if scale then layer.scale = scale end
-  if shift then layer.shift = shift end
-  return layer
-end
+local technology_icons = {
+  logistics = technology_icon_path .. "biter-logistics.png",
+  biomass_cultivation = technology_icon_path .. "biter-logistics-biomass-cultivation.png",
+  herbivorous_biters = technology_icon_path .. "biter-logistics-herbivorous-biters.png",
+  carrier_capacity = technology_icon_path .. "biter-logistics-carrier-capacity.png",
+  carrier_speed = technology_icon_path .. "biter-logistics-carrier-speed.png",
+  nest_capacity = technology_icon_path .. "biter-logistics-nest-capacity.png",
+  depot_range = technology_icon_path .. "biter-logistics-depot-range.png",
+  depot_capacity = technology_icon_path .. "biter-logistics-depot-capacity.png"
+}
 
-local function logistics_icons()
+local function single_icon(icon)
   return {
-    icon_layer(nest_icon, nest_icon_size, nest_icon_scale, {-10, -2}),
-    icon_layer(biter_icon, biter_icon_size, 0.95, {28, 28})
-  }
-end
-
-local function single_icon(icon, icon_size, scale)
-  return {
-    icon_layer(icon, icon_size, scale)
+    {
+      icon = icon,
+      icon_size = technology_icon_size
+    }
   }
 end
 
@@ -71,7 +60,7 @@ local function nothing_effect(description, icon, icon_size)
   return {
     type = "nothing",
     icon = icon,
-    icon_size = icon_size or 64,
+    icon_size = icon_size or technology_icon_size,
     use_icon_overlay_constant = false,
     effect_description = description
   }
@@ -99,7 +88,7 @@ end
 local logistics_tech = {
   type = "technology",
   name = constants.research.base,
-  icons = logistics_icons(),
+  icons = single_icon(technology_icons.logistics),
   effects = {
     {
       type = "unlock-recipe",
@@ -123,11 +112,13 @@ local logistics_tech = {
   order = "c-k-a[biter-logistics]"
 }
 
-local capacity_icons = single_icon(biter_icon, biter_icon_size, biter_icon_scale)
-local speed_icons = single_icon(biter_icon, biter_icon_size, biter_icon_scale)
-local nest_capacity_icons = single_icon(nest_icon, nest_icon_size, nest_icon_scale)
-local biomass_icons = single_icon(biomass_icon, biter_icon_size, biter_icon_scale)
-local depot_range_icons = single_icon(nest_icon, nest_icon_size, nest_icon_scale)
+local capacity_icons = single_icon(technology_icons.carrier_capacity)
+local speed_icons = single_icon(technology_icons.carrier_speed)
+local nest_capacity_icons = single_icon(technology_icons.nest_capacity)
+local biomass_icons = single_icon(technology_icons.biomass_cultivation)
+local herbivorous_icons = single_icon(technology_icons.herbivorous_biters)
+local depot_range_icons = single_icon(technology_icons.depot_range)
+local depot_capacity_icons = single_icon(technology_icons.depot_capacity)
 
 local technologies = {logistics_tech}
 
@@ -153,9 +144,9 @@ technologies[#technologies + 1] = {
 technologies[#technologies + 1] = {
   type = "technology",
   name = constants.research.herbivorous_biters,
-  icons = speed_icons,
+  icons = herbivorous_icons,
   effects = {
-    nothing_effect("Carrier Biter food: wood", "__base__/graphics/icons/wood.png", 64)
+    nothing_effect("Carrier Biter food: wood", technology_icons.herbivorous_biters)
   },
   prerequisites = {constants.research.base, "chemical-science-pack"},
   unit = {
@@ -180,8 +171,8 @@ for level, spec in ipairs({
     spec.ingredients,
     spec.time,
     "Carrier Biter cargo capacity: +1 stack",
-    biter_icon,
-    biter_icon_size
+    technology_icons.carrier_capacity,
+    technology_icon_size
   )
 end
 
@@ -198,8 +189,8 @@ for level, spec in ipairs({
     spec.ingredients,
     spec.time,
     "Carrier Biter speed: +20%",
-    biter_icon,
-    biter_icon_size
+    technology_icons.carrier_speed,
+    technology_icon_size
   )
 end
 
@@ -208,7 +199,7 @@ technologies[#technologies + 1] = {
   name = constants.research.carrier_speed_leveled,
   icons = speed_icons,
   effects = {
-    nothing_effect("Carrier Biter speed: +10%", biter_icon, biter_icon_size)
+    nothing_effect("Carrier Biter speed: +10%", technology_icons.carrier_speed)
   },
   prerequisites = {constants.research.carrier_speed_prefix .. "3", "space-science-pack"},
   unit = {
@@ -234,14 +225,14 @@ for level, spec in ipairs({
     spec.ingredients,
     spec.time,
     "Logistics Nest cargo slots: " .. spec.slots,
-    nest_icon,
-    nest_icon_size
+    technology_icons.nest_capacity,
+    technology_icon_size
   )
 end
 
 for level, spec in ipairs({
-  {count = 150, time = 30, radius = 32, ingredients = science.red_green, prerequisites = {constants.research.base}},
-  {count = 300, time = 30, radius = 40, ingredients = science.chemical, prerequisites = {constants.research.depot_range_prefix .. "1", "chemical-science-pack"}},
+  {count = 150, time = 30, radius = 40, ingredients = science.red_green, prerequisites = {constants.research.base}},
+  {count = 300, time = 30, radius = 48, ingredients = science.chemical, prerequisites = {constants.research.depot_range_prefix .. "1", "chemical-science-pack"}},
   {count = 600, time = 30, radius = 56, ingredients = science.production, prerequisites = {constants.research.depot_range_prefix .. "2", "production-science-pack"}},
   {count = 1000, time = 60, radius = 64, ingredients = science.utility, prerequisites = {constants.research.depot_range_prefix .. "3", "utility-science-pack"}},
   {count = 1500, time = 60, radius = 72, ingredients = science.space, prerequisites = {constants.research.depot_range_prefix .. "4", "space-science-pack"}}
@@ -254,8 +245,27 @@ for level, spec in ipairs({
     spec.ingredients,
     spec.time,
     "Biter Fuel Depot activity radius: " .. spec.radius .. " tiles",
-    nest_icon,
-    nest_icon_size
+    technology_icons.depot_range,
+    technology_icon_size
+  )
+end
+
+for level, spec in ipairs({
+  {count = 150, time = 30, capacity = 2, ingredients = science.red_green, prerequisites = {constants.research.base}},
+  {count = 300, time = 30, capacity = 3, ingredients = science.chemical, prerequisites = {constants.research.depot_capacity_prefix .. "1", "chemical-science-pack"}},
+  {count = 600, time = 30, capacity = 4, ingredients = science.production, prerequisites = {constants.research.depot_capacity_prefix .. "2", "production-science-pack"}},
+  {count = 1000, time = 60, capacity = 5, ingredients = science.utility, prerequisites = {constants.research.depot_capacity_prefix .. "3", "utility-science-pack"}}
+}) do
+  technologies[#technologies + 1] = technology(
+    constants.research.depot_capacity_prefix .. level,
+    depot_capacity_icons,
+    spec.prerequisites,
+    spec.count,
+    spec.ingredients,
+    spec.time,
+    "Maximum Carrier Biters per Fuel Depot: +1",
+    technology_icons.depot_capacity,
+    technology_icon_size
   )
 end
 
