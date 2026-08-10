@@ -22,6 +22,14 @@ local nest_capacity_technologies = {
   constants.research.nest_capacity_prefix .. "3"
 }
 
+local depot_range_technologies = {
+  constants.research.depot_range_prefix .. "1",
+  constants.research.depot_range_prefix .. "2",
+  constants.research.depot_range_prefix .. "3",
+  constants.research.depot_range_prefix .. "4",
+  constants.research.depot_range_prefix .. "5"
+}
+
 local tracked_technologies = {
   [constants.research.carrier_speed_leveled] = true,
   [constants.research.herbivorous_biters] = true
@@ -30,6 +38,7 @@ local tracked_technologies = {
 for _, name in ipairs(capacity_technologies) do tracked_technologies[name] = true end
 for _, name in ipairs(speed_technologies) do tracked_technologies[name] = true end
 for _, name in ipairs(nest_capacity_technologies) do tracked_technologies[name] = true end
+for _, name in ipairs(depot_range_technologies) do tracked_technologies[name] = true end
 
 local function default_effects(force)
   return {
@@ -37,9 +46,11 @@ local function default_effects(force)
     carrier_capacity_stacks = constants.research.default_carrier_capacity_stacks,
     carrier_speed_multiplier = constants.research.default_carrier_speed_multiplier,
     nest_cargo_slots = constants.research.default_nest_cargo_slots,
+    depot_range = constants.research.default_depot_range,
     carrier_capacity_level = 0,
     carrier_speed_level = 0,
     nest_capacity_level = 0,
+    depot_range_level = 0,
     herbivorous_biters = false
   }
 end
@@ -115,6 +126,10 @@ local function calculate_force_effects(force)
     constants.nest_slots.max_cargo_count
   )
 
+  effects.depot_range_level = researched_finite_levels(force, depot_range_technologies)
+  effects.depot_range = constants.research.depot_range_by_level[effects.depot_range_level]
+    or constants.research.default_depot_range
+
   effects.herbivorous_biters = is_researched(force, constants.research.herbivorous_biters)
 
   return effects
@@ -135,6 +150,10 @@ end
 
 function research.nest_cargo_slots_for_force_name(force_name)
   return research.effects_for_force_name(force_name).nest_cargo_slots
+end
+
+function research.depot_range_for_force_name(force_name)
+  return research.effects_for_force_name(force_name).depot_range
 end
 
 local function stack_definition(stack)

@@ -1,5 +1,6 @@
 local constants = require("constants")
 local state = require("scripts.state")
+local networks = require("scripts.networks")
 
 local food = {}
 
@@ -35,20 +36,8 @@ function food.value_for_item(force_name, item_name)
   return food.values_for_force_name(force_name)[item_name] or 0
 end
 
-local function distance(a, b)
-  if not a or not b then return 0 end
-  local dx = a.x - b.x
-  local dy = a.y - b.y
-  return ((dx * dx) + (dy * dy)) ^ 0.5
-end
-
 function food.estimate_job_cost(depot, source, destination)
-  local depot_position = depot and depot.position
-  local source_position = source and source.position
-  local destination_position = destination and destination.position
-  local trip = distance(depot_position, source_position)
-    + distance(source_position, destination_position)
-    + distance(destination_position, depot_position)
+  local trip = networks.route_distance(depot, source, destination)
   return math.ceil(constants.food.base_job_cost + trip * constants.food.cost_per_tile)
 end
 

@@ -5,6 +5,7 @@ local depots = require("scripts.depots")
 local jobs = require("scripts.jobs")
 local research = require("scripts.research")
 local food = require("scripts.food")
+local networks = require("scripts.networks")
 
 local logistics = {}
 
@@ -21,18 +22,6 @@ local function dequeue_current(data, index)
     data.request_cursor = math.max(data.request_cursor - 1, 0)
   end
   return id
-end
-
-local function same_network(a, b)
-  return a and b
-    and a.force_name == b.force_name
-    and a.surface_index == b.surface_index
-end
-
-local function distance_squared(a, b)
-  local dx = a.position.x - b.position.x
-  local dy = a.position.y - b.position.y
-  return dx * dx + dy * dy
 end
 
 local function stack_size(item_name)
@@ -55,56 +44,55 @@ function logistics.enqueue_all_requests()
   end
 end
 
-local function find_supply(request, item_name)
-  local data = state.get()
-  local best = nil
-  local best_score = nil
-
-  for _, candidate in pairs(data.nests) do
-    if candidate.id ~= request.id
-      and candidate.mode == constants.nest_modes.supply
-      and nests.is_valid(candidate)
-      and same_network(request, candidate) then
-      local available = nests.available_supply_count(candidate, item_name)
-      if available > 0 then
-        local score = distance_squared(request, candidate)
-        if not best_score or score < best_score then
-          best = candidate
-          best_score = score
-        end
-      end
-    end
-  end
-
-  return best
+local function better_candidate(score, source, depot, best_score, best_source, best_depot)
+  if not best_score or score < best_score then return true end
+  if score ~= best_score then return false end
+  if not best_depot or depot.id < best_depot.id then return true end
+  if depot.id ~= best_depot.id then return false end
+  return best_source and source.id < best_source.id
 end
 
-local function find_depot_and_carrier(source, request)
+local function find_delivery_candidate(request, item_name)
   local data = state.get()
+  local best_source = nil
   local best_depot = nil
   local best_carrier = nil
   local best_required_food = nil
   local best_score = nil
 
-  for _, depot in pairs(data.depots) do
-    if depots.is_valid(depot) and same_network(request, depot) then
-      local carrier = depots.find_idle_carrier(depot)
-      local required_food = food.estimate_job_cost(depot, source, request)
-      if carrier
-        and required_food <= carrier.food_capacity
-        and (carrier.food_energy >= required_food or depots.available_food_energy(depot) + carrier.food_energy >= required_food) then
-        local score = distance_squared(depot, source) + distance_squared(depot, request)
-        if not best_score or score < best_score then
-          best_depot = depot
-          best_carrier = carrier
-          best_required_food = required_food
-          best_score = score
+  for _, source in pairs(data.nests) do
+    if source.id ~= request.id
+      and source.mode == constants.nest_modes.supply
+      and nests.is_valid(source)
+      and networks.same_force_surface(request, source) then
+      local available = nests.available_supply_count(source, item_name)
+      if available > 0 then
+        for _, depot in pairs(data.depots) do
+          if depots.is_valid(depot)
+            and networks.same_force_surface(request, depot)
+            and networks.depot_covers_nest(depot, source)
+            and networks.depot_covers_nest(depot, request) then
+            local carrier = depots.find_idle_carrier(depot)
+            local required_food = food.estimate_job_cost(depot, source, request)
+            if carrier
+              and required_food <= carrier.food_capacity
+              and (carrier.food_energy >= required_food or depots.available_food_energy(depot) + carrier.food_energy >= required_food) then
+              local score = networks.route_distance(depot, source, request)
+              if better_candidate(score, source, depot, best_score, best_source, best_depot) then
+                best_source = source
+                best_depot = depot
+                best_carrier = carrier
+                best_required_food = required_food
+                best_score = score
+              end
+            end
+          end
         end
       end
     end
   end
 
-  return best_depot, best_carrier, best_required_food
+  return best_source, best_depot, best_carrier, best_required_food
 end
 
 local function process_request(request_id, assign_callback)
@@ -119,14 +107,11 @@ local function process_request(request_id, assign_callback)
   local free = nests.free_space_for_item(request, item_name)
   if free <= 0 then return end
 
-  local source = find_supply(request, item_name)
-  if not source then return end
+  local source, depot, carrier, required_food = find_delivery_candidate(request, item_name)
+  if not source or not depot or not carrier then return end
 
   local available = nests.available_supply_count(source, item_name)
   if available <= 0 then return end
-
-  local depot, carrier, required_food = find_depot_and_carrier(source, request)
-  if not depot or not carrier then return end
 
   if carrier.food_energy < required_food and not depots.consume_food(depot, carrier, required_food) then
     return

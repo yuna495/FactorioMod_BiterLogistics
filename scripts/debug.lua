@@ -95,7 +95,8 @@ function debug.print_status(command)
       player.force.name,
       effects.carrier_capacity_stacks,
       string.format("%.2f", effects.carrier_speed_multiplier),
-      effects.nest_cargo_slots
+      effects.nest_cargo_slots,
+      effects.depot_range
     })
   end
 

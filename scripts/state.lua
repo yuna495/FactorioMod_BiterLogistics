@@ -64,6 +64,17 @@ local function migrate(data)
     end
     data.schema_version = 5
   end
+
+  if data.schema_version < 6 then
+    for _, effects in pairs(data.force_effects or {}) do
+      effects.depot_range_level = effects.depot_range_level or 0
+      effects.depot_range = effects.depot_range or 24
+    end
+    for _, player_state in pairs(data.players or {}) do
+      player_state.range_render_object_ids = player_state.range_render_object_ids or {}
+    end
+    data.schema_version = 6
+  end
 end
 
 function state.get()

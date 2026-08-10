@@ -15,7 +15,7 @@ local function setting_value(name, fallback)
   return setting.value
 end
 
-local function color_for(kind)
+function visuals.color_for(kind)
   local name = constants.visuals.color_settings[kind]
   local defaults = constants.visuals.default_colors[kind]
   if not name or not defaults then
@@ -55,7 +55,7 @@ local function draw_color(record, kind)
     sprite = constants.visuals.spawner_mask_sprite,
     surface = record.entity.surface,
     target = record.entity,
-    tint = color_for(kind),
+    tint = visuals.color_for(kind),
     render_layer = "higher-object-above"
   }
 end

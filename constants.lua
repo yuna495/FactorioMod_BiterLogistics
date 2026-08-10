@@ -11,6 +11,8 @@ constants.biomass_item = "biter-logistics-biter-biomass"
 constants.visuals = {
   spawner_mask_sprite = "biter-logistics-spawner-color-mask",
   overlay_alpha = 0.82,
+  range_alpha = 0.72,
+  range_width = 4,
   color_settings = {
     supply = "biter-logistics-supply-color",
     request = "biter-logistics-request-color",
@@ -49,13 +51,18 @@ constants.research = {
   carrier_speed_leveled_first_level = 4,
   carrier_speed_max_level = 17,
   nest_capacity_prefix = "biter-logistics-nest-capacity-",
+  depot_range_prefix = "biter-logistics-depot-range-",
+  depot_range_max_level = 5,
   default_carrier_capacity_stacks = 1,
   default_carrier_speed_multiplier = 1,
   default_nest_cargo_slots = 10,
+  default_depot_range = 24,
+  depot_range_by_level = {32, 40, 56, 64, 72},
   base_carrier_speed = 0.2,
   carrier_speed_finite_bonus = 0.2,
   carrier_speed_leveled_bonus = 0.1,
-  max_carrier_speed_multiplier = 3
+  max_carrier_speed_multiplier = 3,
+  max_depot_range = 72
 }
 
 constants.nest_modes = {
@@ -95,7 +102,8 @@ constants.ticks = {
   destination_space_check_interval = 120,
   destination_space_check_jitter = 60,
   command_check_interval = 60,
-  command_timeout = 60 * 60
+  command_timeout = 60 * 60,
+  range_visual_update_interval = 60
 }
 
 constants.command = {

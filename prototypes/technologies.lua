@@ -127,6 +127,7 @@ local capacity_icons = single_icon(biter_icon, biter_icon_size, biter_icon_scale
 local speed_icons = single_icon(biter_icon, biter_icon_size, biter_icon_scale)
 local nest_capacity_icons = single_icon(nest_icon, nest_icon_size, nest_icon_scale)
 local biomass_icons = single_icon(biomass_icon, biter_icon_size, biter_icon_scale)
+local depot_range_icons = single_icon(nest_icon, nest_icon_size, nest_icon_scale)
 
 local technologies = {logistics_tech}
 
@@ -233,6 +234,26 @@ for level, spec in ipairs({
     spec.ingredients,
     spec.time,
     "Logistics Nest cargo slots: " .. spec.slots,
+    nest_icon,
+    nest_icon_size
+  )
+end
+
+for level, spec in ipairs({
+  {count = 150, time = 30, radius = 32, ingredients = science.red_green, prerequisites = {constants.research.base}},
+  {count = 300, time = 30, radius = 40, ingredients = science.chemical, prerequisites = {constants.research.depot_range_prefix .. "1", "chemical-science-pack"}},
+  {count = 600, time = 30, radius = 56, ingredients = science.production, prerequisites = {constants.research.depot_range_prefix .. "2", "production-science-pack"}},
+  {count = 1000, time = 60, radius = 64, ingredients = science.utility, prerequisites = {constants.research.depot_range_prefix .. "3", "utility-science-pack"}},
+  {count = 1500, time = 60, radius = 72, ingredients = science.space, prerequisites = {constants.research.depot_range_prefix .. "4", "space-science-pack"}}
+}) do
+  technologies[#technologies + 1] = technology(
+    constants.research.depot_range_prefix .. level,
+    depot_range_icons,
+    spec.prerequisites,
+    spec.count,
+    spec.ingredients,
+    spec.time,
+    "Biter Fuel Depot activity radius: " .. spec.radius .. " tiles",
     nest_icon,
     nest_icon_size
   )
