@@ -46,6 +46,8 @@ local function cargo_slot_last(record, inventory)
   end
   local cargo_count = research.nest_cargo_slots_for_force_name(force_name)
   local configured_last = constants.nest_slots.cargo_first + cargo_count - 1
+  local bar = inventory.supports_bar() and inventory.get_bar() or (#inventory + 1)
+  configured_last = math.min(configured_last, bar - 1)
   return math.min(configured_last, #inventory)
 end
 
