@@ -19,5 +19,13 @@ data:extend({
     setting_type = "startup",
     default_value = {r = 0.35, g = 0.95, b = 0.38, a = 0.82},
     order = "c[fuel-depot]"
+  },
+  {
+    type = "string-setting",
+    name = "biter-logistics-feral-cargo-behavior",
+    setting_type = "runtime-global",
+    default_value = "drop",
+    allowed_values = {"drop", "destroy"},
+    order = "d[feral-cargo-behavior]"
   }
 })

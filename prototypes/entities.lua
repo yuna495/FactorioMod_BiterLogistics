@@ -147,6 +147,11 @@ carrier.autoplace = nil
 carrier.minable = {mining_time = 0.2, result = constants.carrier_item}
 carrier.absorptions_to_join_attack = nil
 carrier.has_belt_immunity = true
+carrier.max_health = 1
+carrier.healing_per_tick = 0
+carrier.corpse = nil
+carrier.dying_explosion = nil
+carrier.dying_sound = nil
 carrier.min_pursue_time = 0
 carrier.max_pursue_distance = 0
 carrier.attack_parameters.damage_modifier = 0

@@ -64,6 +64,7 @@ local function on_removed(event)
   local refresh = is_visual_entity(entity)
   if event.name == defines.events.on_entity_died then
     biomass_loot.on_entity_died(event)
+    carriers.on_entity_died(event)
   end
   cleanup.on_removed(event)
   if refresh then
@@ -97,6 +98,11 @@ end
 
 script.on_event(defines.events.on_object_destroyed, on_object_destroyed)
 script.on_event(defines.events.on_ai_command_completed, carriers.on_ai_command_completed)
+script.on_event(
+  defines.events.on_entity_damaged,
+  carriers.on_entity_damaged,
+  {{filter = "name", name = constants.carrier_unit}}
+)
 local function on_research_changed(event)
   research.on_research_changed(event)
   if event.research and event.research.valid then
@@ -158,7 +164,7 @@ end)
 script.on_nth_tick(constants.ticks.nest_update_interval, function()
   nests.process_batch(logistics.enqueue_request)
   depots.process_batch(carriers.spawn_from_depot, logistics.enqueue_all_requests)
-  logistics.process_batch(carriers.assign_job)
+  logistics.process_batch(carriers.assign_job, carriers.on_dispatch_failure)
 end)
 
 script.on_nth_tick(constants.ticks.carrier_update_interval, function()

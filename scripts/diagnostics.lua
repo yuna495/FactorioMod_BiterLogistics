@@ -25,6 +25,11 @@ local function gps(record)
   return string.format("[gps=%.1f,%.1f,%s]", record.position.x, record.position.y, surface)
 end
 
+local function gps_from_scope(scope)
+  if not scope or not scope.position or not scope.surface_name then return "" end
+  return string.format("[gps=%.1f,%.1f,%s]", scope.position.x, scope.position.y, scope.surface_name)
+end
+
 local function item_caption(item_name)
   if not item_name then return "-" end
   return "[item=" .. item_name .. "]"
@@ -34,7 +39,10 @@ local function alert_icon(kind)
   if kind == "food-shortage" then
     return {type = "item", name = constants.depot_item}
   end
-  if kind == "pathfinding-failed" then
+  if kind == "pathfinding-failed"
+    or kind == "carrier-route-failure"
+    or kind == "carrier-starvation"
+    or kind == "carrier-feralized" then
     return {type = "item", name = constants.carrier_item}
   end
   return {type = "item", name = constants.nest_item}
@@ -246,6 +254,74 @@ function diagnostics.pathfinding_failed(carrier, target_record, target_kind)
   )
 end
 
+function diagnostics.carrier_route_failure(carrier, target_record, target_kind, failure_count)
+  local scope = carrier or target_record
+  diagnostics.notify(
+    "carrier-route-failure",
+    scope,
+    {
+      "diagnostic.biter-logistics-carrier-route-failure",
+      carrier and carrier.id or "-",
+      failure_count or 0,
+      constants.feral.failure_threshold,
+      target_kind or "-",
+      record_label(target_kind == "depot" and "depot" or "nest", target_record),
+      gps(target_record)
+    },
+    {carrier and carrier.id, target_kind, target_record and target_record.id},
+    {
+      carrier_id = carrier and carrier.id,
+      target_kind = target_kind,
+      target_id = target_record and target_record.id
+    }
+  )
+end
+
+function diagnostics.carrier_starvation(carrier, depot, request, item_name, failure_count)
+  diagnostics.notify(
+    "carrier-starvation",
+    carrier or depot or request,
+    {
+      "diagnostic.biter-logistics-carrier-starvation",
+      carrier and carrier.id or "-",
+      failure_count or 0,
+      constants.feral.failure_threshold,
+      record_label("depot", depot),
+      gps(depot),
+      item_caption(item_name),
+      record_label("nest", request),
+      gps(request)
+    },
+    {carrier and carrier.id},
+    {
+      carrier_id = carrier and carrier.id,
+      depot_id = depot and depot.id,
+      request_id = request and request.id,
+      item_name = item_name
+    }
+  )
+end
+
+function diagnostics.carrier_feralized(scope, reason, entity)
+  if not scope then return end
+  diagnostics.notify(
+    "carrier-feralized",
+    {
+      entity = entity,
+      force_name = scope.force_name,
+      surface_index = scope.surface_index,
+      position = scope.position
+    },
+    {
+      "diagnostic.biter-logistics-carrier-feralized-" .. tostring(reason or "unknown"),
+      scope.carrier_id or "-",
+      gps_from_scope(scope)
+    },
+    {scope.carrier_id, reason, game.tick},
+    {feral_carrier_id = scope.carrier_id, feral_reason = reason}
+  )
+end
+
 function diagnostics.destination_waiting(carrier, destination, item_name)
   diagnostics.notify(
     "destination-waiting",
@@ -341,6 +417,14 @@ function diagnostics.clear_for_carrier(carrier_id)
   if not carrier_id then return end
   clear_matching(function(record)
     return record.carrier_id == carrier_id
+  end)
+end
+
+function diagnostics.clear_route_for_carrier(carrier_id)
+  if not carrier_id then return end
+  clear_matching(function(record)
+    return record.carrier_id == carrier_id
+      and (record.kind == "pathfinding-failed" or record.kind == "carrier-route-failure")
   end)
 end
 

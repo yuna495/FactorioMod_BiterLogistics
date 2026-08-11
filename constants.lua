@@ -77,6 +77,10 @@ constants.nest_modes = {
   request = "request"
 }
 
+constants.settings = {
+  feral_cargo_behavior = "biter-logistics-feral-cargo-behavior"
+}
+
 constants.request_modes = {
   simple = "simple",
   circuit = "circuit"
@@ -151,6 +155,27 @@ constants.command = {
   pathfind_flags = {
     cache = true,
     low_priority = true
+  }
+}
+
+constants.feral = {
+  cargo_behavior = {
+    drop = "drop",
+    destroy = "destroy"
+  },
+  failure_threshold = 3,
+  failure_interval = 600,
+  route_progress_min_delta = 0.5,
+  attack_radius = 64,
+  spawn_search_radius = 12,
+  spawn_search_precision = 0.5,
+  fallback_biter = "small-biter",
+  biter_order = {"small-biter", "medium-biter", "big-biter", "behemoth-biter"},
+  biter_rank = {
+    ["small-biter"] = 1,
+    ["medium-biter"] = 2,
+    ["big-biter"] = 3,
+    ["behemoth-biter"] = 4
   }
 }
 

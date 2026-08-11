@@ -113,6 +113,19 @@ local function migrate(data)
     data.request_cursor = 0
     data.schema_version = 11
   end
+
+  if data.schema_version < 12 then
+    for _, carrier in pairs(data.carriers or {}) do
+      carrier.starvation_failures = carrier.starvation_failures or 0
+      carrier.last_starvation_failure_tick = carrier.last_starvation_failure_tick or nil
+      carrier.route_failures = carrier.route_failures or 0
+      carrier.last_route_failure_tick = carrier.last_route_failure_tick or nil
+      carrier.route_failure_target_type = carrier.route_failure_target_type or nil
+      carrier.route_failure_target_id = carrier.route_failure_target_id or nil
+      carrier.route_failure_state = carrier.route_failure_state or nil
+    end
+    data.schema_version = 12
+  end
 end
 
 function state.get()
