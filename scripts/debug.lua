@@ -4,6 +4,7 @@ local nests = require("scripts.nests")
 local depots = require("scripts.depots")
 local jobs = require("scripts.jobs")
 local research = require("scripts.research")
+local carriers = require("scripts.carriers")
 
 local debug = {}
 
@@ -18,6 +19,63 @@ end
 local function position_text(position)
   if not position then return "-" end
   return string.format("%.1f,%.1f", position.x, position.y)
+end
+
+local function number_text(value)
+  if value == nil then return "-" end
+  return string.format("%.2f", value)
+end
+
+local function valid(entity)
+  return entity and entity.valid
+end
+
+local function record_position(record)
+  if not record then return nil end
+  if valid(record.entity) then return record.entity.position end
+  return record.position
+end
+
+local function distance_between(a, b)
+  if not a or not b then return nil end
+  local dx = a.x - b.x
+  local dy = a.y - b.y
+  return math.sqrt(dx * dx + dy * dy)
+end
+
+local function test_move_text(record)
+  if not record or not record.test_move_position then return "-" end
+  return position_text(record.test_move_position)
+    .. "/"
+    .. tostring(record.test_move_result or "pending")
+    .. "@"
+    .. tostring(record.test_move_tick or "-")
+end
+
+local function destination_candidate_text(record)
+  if not record or (not record.destination_candidate_index and not record.destination_candidate_name) then
+    return "-"
+  end
+  return tostring(record.destination_candidate_index or "-")
+    .. "/"
+    .. tostring(record.destination_candidate_count or "-")
+    .. ":"
+    .. tostring(record.destination_candidate_name or "-")
+end
+
+local function carrier_target_record(data, record, job)
+  if not record then return nil end
+  if record.state == "to_source" and job then
+    return data.nests[job.source_nest_id]
+  end
+  if record.state == "to_destination" and job then
+    return data.nests[job.destination_nest_id]
+  end
+  if record.state == "returning" then
+    local depot_id = (job and job.home_depot_id) or record.home_depot_id
+    return data.depots[depot_id]
+  end
+  return nil
 end
 
 local function cargo_stack_text(cargo)
@@ -82,9 +140,16 @@ local function output_for(command)
   return function(message) game.print(message) end, nil
 end
 
+function debug.enable_logging(player_index)
+  local debug_state = state.get().debug
+  debug_state.enabled_until_tick = game.tick + constants.ticks.debug_log_window
+  debug_state.player_index = player_index
+end
+
 function debug.print_status(command)
   local data = state.get()
   local print, player = output_for(command)
+  debug.enable_logging(command.player_index)
   research.rebuild_all(false)
 
   print({"debug.biter-logistics-header", count_pairs(data.nests), count_pairs(data.depots), count_pairs(data.carriers), game.tick})
@@ -175,13 +240,71 @@ function debug.print_status(command)
         job and (job.id .. "/" .. job.state) or "-",
         cargo_text(record),
         tostring(has_command),
+        record.command_kind or "-",
+        record.command_result or "-",
+        record.command_tick or "-",
+        tostring(record.awaiting_route_retry or false),
         record.next_update_tick or "-",
         position_text(entity.position),
-        record.command_target_id or "-",
-        position_text(record.command_position),
         record.food_energy or 0
       })
+
+      local target_record = carrier_target_record(data, record, job)
+      local target_position = record_position(target_record)
+      local command_target_position = record.command_target_position or target_position
+      print({
+        "debug.biter-logistics-carrier-route",
+        id,
+        record.command_target_type or "-",
+        record.command_target_id or "-",
+        position_text(command_target_position),
+        position_text(record.destination_position),
+        position_text(record.command_passed_position or record.command_position),
+        tostring(record.destination_position_failed or false),
+        number_text(distance_between(entity.position, command_target_position)),
+        number_text(record.route_best_distance),
+        record.route_last_progress_tick or "-",
+        position_text(record.route_last_progress_position),
+        record.route_failures or 0,
+        test_move_text(record),
+        destination_candidate_text(record),
+        record.destination_candidate_summary or "-"
+      })
     end
+  end
+end
+
+local function parse_test_move_parameter(parameter)
+  local carrier_id_text, x_text, y_text =
+    string.match(parameter or "", "^%s*(%S+)%s+(%S+)%s+(%S+)%s*$")
+  local carrier_id = carrier_id_text and tonumber(carrier_id_text) or nil
+  local x = x_text and tonumber(x_text) or nil
+  local y = y_text and tonumber(y_text) or nil
+  if not carrier_id or carrier_id ~= math.floor(carrier_id) or not x or not y then
+    return nil
+  end
+  return carrier_id, x, y
+end
+
+function debug.test_move(command)
+  local print = output_for(command)
+  debug.enable_logging(command.player_index)
+  local carrier_id, x, y = parse_test_move_parameter(command.parameter)
+  if not carrier_id then
+    print({"debug.biter-logistics-test-move-usage"})
+    return
+  end
+
+  local position = {x = x, y = y}
+  local ok, reason, err = carriers.test_move(carrier_id, position)
+  if ok then
+    print({"debug.biter-logistics-test-move-issued", carrier_id, position_text(position)})
+  elseif reason == "not_found" then
+    print({"debug.biter-logistics-test-move-not-found", carrier_id})
+  elseif reason == "invalid" then
+    print({"debug.biter-logistics-test-move-invalid", carrier_id})
+  else
+    print({"debug.biter-logistics-test-move-failed", carrier_id, tostring(err or reason or "-")})
   end
 end
 
@@ -190,6 +313,11 @@ function debug.register_commands()
     constants.commands.debug,
     {"command-help.biter-logistics-debug"},
     debug.print_status
+  )
+  commands.add_command(
+    constants.commands.test_move,
+    {"command-help.biter-logistics-test-move"},
+    debug.test_move
   )
 end
 

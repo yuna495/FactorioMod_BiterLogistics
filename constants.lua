@@ -128,7 +128,9 @@ constants.ticks = {
   destination_space_check_interval = 120,
   destination_space_check_jitter = 60,
   command_check_interval = 60,
+  route_stall_timeout = 60 * 10,
   command_timeout = 60 * 60,
+  debug_log_window = 60 * 10,
   range_visual_update_interval = 60,
   diagnostic_message_cooldown = 60 * 5,
   diagnostic_alert_update_interval = 60,
@@ -151,10 +153,16 @@ constants.command = {
   interaction_radius = 4,
   destination_search_radius = 8,
   destination_precision = 0.5,
-  stop_ticks = 5,
-  pathfind_flags = {
-    cache = true,
-    low_priority = true
+  destination_candidate_box_radius = 1.5,
+  destination_candidate_offsets = {
+    {name = "north", x = 0, y = -3.5},
+    {name = "south", x = 0, y = 3.5},
+    {name = "east", x = 3.5, y = 0},
+    {name = "west", x = -3.5, y = 0},
+    {name = "north-east", x = 2.5, y = -2.5},
+    {name = "north-west", x = -2.5, y = -2.5},
+    {name = "south-east", x = 2.5, y = 2.5},
+    {name = "south-west", x = -2.5, y = 2.5}
   }
 }
 
@@ -191,7 +199,8 @@ constants.gui = {
 }
 
 constants.commands = {
-  debug = "biter-logistics-debug"
+  debug = "biter-logistics-debug",
+  test_move = "biter-logistics-test-move"
 }
 
 return constants

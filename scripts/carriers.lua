@@ -18,6 +18,101 @@ local function copy_position(position)
   return {x = position.x, y = position.y}
 end
 
+local function position_text(position)
+  if not position then return "-" end
+  return string.format("%.1f,%.1f", position.x, position.y)
+end
+
+local function number_text(value)
+  if value == nil then return "-" end
+  return string.format("%.2f", value)
+end
+
+local function entity_position(entity)
+  return valid(entity) and entity.position or nil
+end
+
+local function distance_between(a, b)
+  if not a or not b then return nil end
+  local dx = a.x - b.x
+  local dy = a.y - b.y
+  return math.sqrt(dx * dx + dy * dy)
+end
+
+local function debug_logging_enabled()
+  local data = state.get()
+  local debug_state = data.debug
+  return debug_state
+    and debug_state.enabled_until_tick
+    and game.tick <= debug_state.enabled_until_tick
+end
+
+local function debug_log(message)
+  if debug_logging_enabled() then
+    log("[Biter Logistics debug] " .. message)
+  end
+end
+
+local function behavior_result_name(result)
+  if result == defines.behavior_result.in_progress then return "in_progress" end
+  if result == defines.behavior_result.fail then return "fail" end
+  if result == defines.behavior_result.success then return "success" end
+  if result == defines.behavior_result.deleted then return "deleted" end
+  return "unknown"
+end
+
+local command_type_names = {
+  [defines.command.attack] = "attack",
+  [defines.command.attack_area] = "attack_area",
+  [defines.command.build_base] = "build_base",
+  [defines.command.compound] = "compound",
+  [defines.command.flee] = "flee",
+  [defines.command.go_to_location] = "go_to_location",
+  [defines.command.group] = "group",
+  [defines.command.stop] = "stop",
+  [defines.command.wander] = "wander"
+}
+
+local function command_type_name(command_type)
+  return command_type_names[command_type] or "unknown"
+end
+
+local function command_summary(command)
+  if not command then return "-" end
+  local parts = {
+    "type=" .. command_type_name(command.type) .. "(" .. tostring(command.type) .. ")"
+  }
+  if command.destination then
+    parts[#parts + 1] = "destination=" .. position_text(command.destination)
+  end
+  if command.destination_entity then
+    local entity = command.destination_entity
+    if valid(entity) then
+      parts[#parts + 1] = "destination_entity="
+        .. tostring(entity.name)
+        .. "#"
+        .. tostring(entity.unit_number or "-")
+        .. "@"
+        .. position_text(entity.position)
+    else
+      parts[#parts + 1] = "destination_entity=invalid"
+    end
+  end
+  if command.radius then
+    parts[#parts + 1] = "radius=" .. tostring(command.radius)
+  end
+  if command.ticks_to_wait then
+    parts[#parts + 1] = "ticks_to_wait=" .. tostring(command.ticks_to_wait)
+  end
+  if command.structure_type then
+    parts[#parts + 1] = "structure_type=" .. tostring(command.structure_type)
+  end
+  if command.commands then
+    parts[#parts + 1] = "commands=" .. tostring(#command.commands)
+  end
+  return table.concat(parts, " ")
+end
+
 local function enqueue(data, id)
   if data.carrier_queued[id] then return end
   data.carrier_queue[#data.carrier_queue + 1] = id
@@ -224,6 +319,30 @@ local function reset_route_progress(record)
   record.route_progress_state = nil
   record.route_best_distance = nil
   record.route_last_progress_tick = nil
+  record.route_last_progress_position = nil
+end
+
+local function clear_destination_debug(record)
+  if not record then return end
+  record.command_target_position = nil
+  record.destination_position = nil
+  record.destination_position_failed = nil
+  record.command_passed_position = nil
+  record.destination_candidates = nil
+  record.destination_candidate_summary = nil
+  record.destination_candidate_index = nil
+  record.destination_candidate_name = nil
+  record.destination_candidate_count = nil
+  record.destination_candidate_fail_reason = nil
+end
+
+local function clear_destination_candidate_attempts(record)
+  if not record then return end
+  record.destination_failed_candidate_names = nil
+  record.destination_candidate_target_type = nil
+  record.destination_candidate_target_id = nil
+  record.destination_candidate_route_state = nil
+  record.destination_candidates_exhausted = nil
 end
 
 local function feral_job_result(reason)
@@ -572,7 +691,162 @@ local function is_near_position(record, position, radius)
   return dx * dx + dy * dy <= radius * radius
 end
 
-local function destination_position(record, target_record)
+local function destination_candidate_scope_changed(record, target_type, target_id, route_state)
+  return record.destination_candidate_target_type ~= target_type
+    or record.destination_candidate_target_id ~= target_id
+    or record.destination_candidate_route_state ~= route_state
+end
+
+local function ensure_destination_candidate_scope(record, target_type, target_id, route_state)
+  if destination_candidate_scope_changed(record, target_type, target_id, route_state) then
+    record.destination_failed_candidate_names = {}
+    record.destination_candidate_target_type = target_type
+    record.destination_candidate_target_id = target_id
+    record.destination_candidate_route_state = route_state
+    record.destination_candidates_exhausted = nil
+  elseif type(record.destination_failed_candidate_names) ~= "table" then
+    record.destination_failed_candidate_names = {}
+  end
+  return record.destination_failed_candidate_names
+end
+
+local function can_place_carrier_at(surface, force, position)
+  if not surface or not position then return false end
+  local ok, result = pcall(function()
+    return surface.can_place_entity{
+      name = constants.carrier_unit,
+      position = position,
+      force = force,
+      build_check_type = defines.build_check_type.manual
+    }
+  end)
+  if not ok then
+    debug_log("destination_can_place_error position=" .. position_text(position) .. " error=" .. tostring(result))
+    return false
+  end
+  return result and true or false
+end
+
+local function find_carrier_position_in_box(surface, raw_position)
+  if not surface or not raw_position then return nil end
+  local radius = constants.command.destination_candidate_box_radius
+  local search_space = {
+    {x = raw_position.x - radius, y = raw_position.y - radius},
+    {x = raw_position.x + radius, y = raw_position.y + radius}
+  }
+  local ok, position = pcall(function()
+    return surface.find_non_colliding_position_in_box(
+      constants.carrier_unit,
+      search_space,
+      constants.command.destination_precision
+    )
+  end)
+  if not ok then
+    debug_log("destination_find_in_box_error raw=" .. position_text(raw_position) .. " error=" .. tostring(position))
+    return nil
+  end
+  return position
+end
+
+local function destination_candidate_summary(candidates)
+  if not candidates or #candidates == 0 then return "-" end
+  local parts = {}
+  for _, candidate in ipairs(candidates) do
+    local index = candidate.index or "-"
+    local part = tostring(index)
+      .. ":"
+      .. tostring(candidate.name or "-")
+      .. " raw="
+      .. position_text(candidate.raw_position)
+      .. " pos="
+      .. position_text(candidate.position)
+      .. " status="
+      .. tostring(candidate.status or "-")
+    if candidate.distance then
+      part = part .. " distance=" .. number_text(candidate.distance)
+    end
+    if candidate.failed then
+      part = part .. " failed=true"
+    end
+    parts[#parts + 1] = part
+  end
+  return table.concat(parts, ";")
+end
+
+local function build_nest_destination_candidates(record, target_record, failed_candidate_names)
+  local target_entity = target_record.entity
+  local surface = target_entity.surface
+  local force = valid(record.entity) and record.entity.force or target_entity.force
+  local target_position = target_entity.position
+  local available = {}
+  local debug_candidates = {}
+
+  for _, offset in ipairs(constants.command.destination_candidate_offsets) do
+    local raw_position = {
+      x = target_position.x + offset.x,
+      y = target_position.y + offset.y
+    }
+    local position = nil
+    local status = "direct"
+
+    if can_place_carrier_at(surface, force, raw_position) then
+      position = raw_position
+    else
+      position = find_carrier_position_in_box(surface, raw_position)
+      if position and can_place_carrier_at(surface, force, position) then
+        status = "box"
+      elseif position then
+        status = "box_blocked"
+        position = nil
+      else
+        status = "box_nil"
+      end
+    end
+
+    local failed = failed_candidate_names and failed_candidate_names[offset.name] or nil
+    local distance = position and distance_between(record.entity.position, position) or nil
+    local debug_candidate = {
+      name = offset.name,
+      raw_position = copy_position(raw_position),
+      position = position and copy_position(position) or nil,
+      status = status,
+      distance = distance,
+      failed = failed and true or nil
+    }
+    debug_candidates[#debug_candidates + 1] = debug_candidate
+
+    if position then
+      available[#available + 1] = {
+        name = offset.name,
+        position = copy_position(position),
+        raw_position = copy_position(raw_position),
+        status = status,
+        distance = distance or 0,
+        failed = failed and true or nil
+      }
+    end
+  end
+
+  table.sort(available, function(left, right)
+    if left.distance == right.distance then
+      return tostring(left.name) < tostring(right.name)
+    end
+    return left.distance < right.distance
+  end)
+
+  local indexes_by_name = {}
+  for index, candidate in ipairs(available) do
+    candidate.index = index
+    indexes_by_name[candidate.name] = index
+  end
+  for _, candidate in ipairs(debug_candidates) do
+    candidate.index = indexes_by_name[candidate.name] or "-"
+  end
+
+  return available, debug_candidates
+end
+
+local function old_non_colliding_destination_position(record, target_record)
   if not valid(record.entity) or not target_record or not valid(target_record.entity) then return nil end
   return target_record.entity.surface.find_non_colliding_position(
     constants.carrier_unit,
@@ -580,6 +854,54 @@ local function destination_position(record, target_record)
     constants.command.destination_search_radius,
     constants.command.destination_precision
   )
+end
+
+local function destination_position(record, target_record, target_type, target_id, route_state)
+  if not valid(record.entity) or not target_record or not valid(target_record.entity) then return nil end
+
+  record.destination_candidates = nil
+  record.destination_candidate_summary = nil
+  record.destination_candidate_index = nil
+  record.destination_candidate_name = nil
+  record.destination_candidate_count = nil
+  record.destination_candidate_fail_reason = nil
+  record.destination_candidates_exhausted = nil
+
+  if target_type ~= "nest" then
+    local destination = old_non_colliding_destination_position(record, target_record)
+    if destination then
+      record.destination_candidates = {{
+        index = 1,
+        name = "non_colliding",
+        raw_position = copy_position(target_record.entity.position),
+        position = copy_position(destination),
+        status = "find_non_colliding_position",
+        distance = distance_between(record.entity.position, destination)
+      }}
+      record.destination_candidate_summary = destination_candidate_summary(record.destination_candidates)
+      record.destination_candidate_index = 1
+      record.destination_candidate_name = "non_colliding"
+      record.destination_candidate_count = 1
+    end
+    return destination
+  end
+
+  local failed_candidate_names = ensure_destination_candidate_scope(record, target_type, target_id, route_state)
+  local candidates, debug_candidates = build_nest_destination_candidates(record, target_record, failed_candidate_names)
+  record.destination_candidates = debug_candidates
+  record.destination_candidate_summary = destination_candidate_summary(debug_candidates)
+  record.destination_candidate_count = #candidates
+
+  for _, candidate in ipairs(candidates) do
+    if not failed_candidate_names[candidate.name] then
+      record.destination_candidate_index = candidate.index
+      record.destination_candidate_name = candidate.name
+      return copy_position(candidate.position)
+    end
+  end
+
+  record.destination_candidates_exhausted = true
+  return nil
 end
 
 local moving_states = {
@@ -611,6 +933,108 @@ local function route_distance(record, target_record)
   return math.sqrt(dx * dx + dy * dy)
 end
 
+local function target_record_position(target_record)
+  return target_record and valid(target_record.entity) and target_record.entity.position or nil
+end
+
+local function commandable_command_summary(commandable)
+  if not commandable then return "-" end
+  local ok, command = pcall(function() return commandable.command end)
+  if not ok then return "unreadable" end
+  return command_summary(command)
+end
+
+local function debug_log_ai_command_completed(record, event, result_name)
+  local target_record = target_for_state(record)
+  local target_position = target_record_position(target_record)
+  debug_log(
+    "ai_command_completed"
+      .. " carrier_id=" .. tostring(record.id)
+      .. " unit_number=" .. tostring(event.unit_number)
+      .. " state=" .. tostring(record.state or "-")
+      .. " command_kind=" .. tostring(record.command_kind or "-")
+      .. " event.result=" .. tostring(event.result) .. "(" .. tostring(result_name) .. ")"
+      .. " current_position=" .. position_text(entity_position(record.entity))
+      .. " command_position=" .. position_text(record.command_passed_position or record.command_position)
+      .. " target_position=" .. position_text(target_position)
+      .. " current_distance=" .. number_text(route_distance(record, target_record))
+      .. " failure_count=" .. tostring(record.route_failures or 0)
+      .. " candidate_index=" .. tostring(record.destination_candidate_index or "-")
+      .. " candidate_name=" .. tostring(record.destination_candidate_name or "-")
+      .. " candidate_count=" .. tostring(record.destination_candidate_count or "-")
+  )
+end
+
+local function debug_log_destination_failed(record, target_record, target_type, target_id)
+  debug_log(
+    "destination_position_nil"
+      .. " carrier_id=" .. tostring(record.id)
+      .. " unit_number=" .. tostring(record.unit_number or "-")
+      .. " state=" .. tostring(record.state or "-")
+      .. " target=" .. tostring(target_type or "-") .. "#" .. tostring(target_id or "-")
+      .. " target_position=" .. position_text(target_record_position(target_record))
+      .. " candidates_exhausted=" .. tostring(record.destination_candidates_exhausted or false)
+      .. " candidates=[" .. tostring(record.destination_candidate_summary or "-") .. "]"
+  )
+end
+
+local function debug_log_destination_selected(record, target_record, target_type, target_id)
+  debug_log(
+    "destination_candidates"
+      .. " carrier_id=" .. tostring(record.id)
+      .. " unit_number=" .. tostring(record.unit_number or "-")
+      .. " state=" .. tostring(record.state or "-")
+      .. " target=" .. tostring(target_type or "-") .. "#" .. tostring(target_id or "-")
+      .. " target_position=" .. position_text(target_record_position(target_record))
+      .. " selected_index=" .. tostring(record.destination_candidate_index or "-")
+      .. " selected_name=" .. tostring(record.destination_candidate_name or "-")
+      .. " selected_position=" .. position_text(record.destination_position)
+      .. " candidates=[" .. tostring(record.destination_candidate_summary or "-") .. "]"
+  )
+end
+
+local function debug_log_destination_candidate_failed(record, reason)
+  debug_log(
+    "destination_candidate_failed"
+      .. " carrier_id=" .. tostring(record.id)
+      .. " unit_number=" .. tostring(record.unit_number or "-")
+      .. " state=" .. tostring(record.state or "-")
+      .. " command_kind=" .. tostring(record.command_kind or "-")
+      .. " reason=" .. tostring(reason or "-")
+      .. " candidate_index=" .. tostring(record.destination_candidate_index or "-")
+      .. " candidate_name=" .. tostring(record.destination_candidate_name or "-")
+      .. " command_position=" .. position_text(record.command_passed_position or record.command_position)
+      .. " candidates=[" .. tostring(record.destination_candidate_summary or "-") .. "]"
+  )
+end
+
+local function debug_log_route_stall(record, target_record, commandable)
+  local surface = valid(record.entity) and record.entity.surface or nil
+  local force = valid(record.entity) and record.entity.force or nil
+  debug_log(
+    "route_stall"
+      .. " tick=" .. tostring(game.tick)
+      .. " carrier_id=" .. tostring(record.id)
+      .. " unit_number=" .. tostring(record.unit_number or "-")
+      .. " state=" .. tostring(record.state or "-")
+      .. " command_kind=" .. tostring(record.command_kind or "-")
+      .. " current_position=" .. position_text(entity_position(record.entity))
+      .. " last_progress_position=" .. position_text(record.route_last_progress_position)
+      .. " current_distance=" .. number_text(route_distance(record, target_record))
+      .. " best_distance=" .. number_text(record.route_best_distance)
+      .. " command_position=" .. position_text(record.command_passed_position or record.command_position)
+      .. " target_position=" .. position_text(target_record_position(target_record))
+      .. " commandable.has_command=" .. tostring(commandable and commandable.has_command or false)
+      .. " command={" .. commandable_command_summary(commandable) .. "}"
+      .. " surface=" .. tostring(surface and surface.name or "-")
+      .. "#" .. tostring(surface and surface.index or "-")
+      .. " force=" .. tostring(force and force.name or "-")
+      .. " candidate_index=" .. tostring(record.destination_candidate_index or "-")
+      .. " candidate_name=" .. tostring(record.destination_candidate_name or "-")
+      .. " candidates=[" .. tostring(record.destination_candidate_summary or "-") .. "]"
+  )
+end
+
 local function route_failure_identity_changed(record, target_type, target_id, route_state)
   return record.route_failure_target_type ~= target_type
     or record.route_failure_target_id ~= target_id
@@ -633,25 +1057,28 @@ local function update_route_progress(record, target_record, target_type, target_
     record.route_progress_state = route_state
     record.route_best_distance = distance
     record.route_last_progress_tick = game.tick
+    record.route_last_progress_position = copy_position(record.entity.position)
     return
   end
 
   if not record.route_best_distance then
     record.route_best_distance = distance
     record.route_last_progress_tick = game.tick
+    record.route_last_progress_position = copy_position(record.entity.position)
     return
   end
 
   if distance < record.route_best_distance - constants.feral.route_progress_min_delta then
     record.route_best_distance = distance
     record.route_last_progress_tick = game.tick
+    record.route_last_progress_position = copy_position(record.entity.position)
   end
 end
 
 local function route_has_stalled(record)
   local last_progress_tick = record.route_last_progress_tick or record.command_tick
   return last_progress_tick
-    and game.tick - last_progress_tick >= constants.ticks.command_timeout
+    and game.tick - last_progress_tick >= constants.ticks.route_stall_timeout
 end
 
 local function record_route_failure(record, target_record, target_type, target_id, route_state)
@@ -685,10 +1112,25 @@ local function record_route_failure(record, target_record, target_type, target_i
 end
 
 local function schedule_route_retry(record)
+  clear_destination_candidate_attempts(record)
   record.command_failed = nil
   record.command_result = nil
   record.awaiting_route_retry = true
+  record.command_kind = "hold"
+  record.command_tick = game.tick
   record.next_update_tick = game.tick + constants.ticks.retry_delay
+
+  if not valid(record.entity) or not record.entity.commandable then return end
+  local ok, err = pcall(function()
+    record.entity.commandable.set_command{
+      type = defines.command.stop,
+      ticks_to_wait = constants.ticks.retry_delay,
+      distraction = defines.distraction.none
+    }
+  end)
+  if not ok then
+    log("Biter Logistics: failed to issue carrier retry hold command: " .. tostring(err))
+  end
 end
 
 local function issue_command(record, target_record, target_type, target_id, next_state)
@@ -696,29 +1138,28 @@ local function issue_command(record, target_record, target_type, target_id, next
     return false
   end
 
-  local destination = destination_position(record, target_record)
-  if not destination then return false end
+  record.command_target_position = copy_position(target_record.entity.position)
+  record.destination_position = nil
+  record.destination_position_failed = nil
+  record.command_passed_position = nil
+
+  local destination = destination_position(record, target_record, target_type, target_id, next_state)
+  if not destination then
+    record.destination_position_failed = true
+    debug_log_destination_failed(record, target_record, target_type, target_id)
+    return false
+  end
+  record.destination_position = copy_position(destination)
+  debug_log_destination_selected(record, target_record, target_type, target_id)
 
   local commandable = record.entity.commandable
+  local command_destination = copy_position(destination)
   local ok, err = pcall(function()
     commandable.set_command{
-      type = defines.command.compound,
-      distraction = defines.distraction.none,
-      structure_type = defines.compound_command.return_last,
-      commands = {
-        {
-          type = defines.command.go_to_location,
-          destination = copy_position(destination),
-          radius = constants.command.radius,
-          distraction = defines.distraction.none,
-          pathfind_flags = constants.command.pathfind_flags
-        },
-        {
-          type = defines.command.stop,
-          ticks_to_wait = constants.command.stop_ticks,
-          distraction = defines.distraction.none
-        }
-      }
+      type = defines.command.go_to_location,
+      destination = command_destination,
+      radius = constants.command.radius,
+      distraction = defines.distraction.none
     }
   end)
   if not ok then
@@ -729,17 +1170,131 @@ local function issue_command(record, target_record, target_type, target_id, next
   record.state = next_state
   record.command_target_type = target_type
   record.command_target_id = target_id
-  record.command_position = copy_position(destination)
+  record.command_position = copy_position(command_destination)
+  record.command_passed_position = copy_position(command_destination)
   record.command_failed = nil
   record.command_result = nil
   record.awaiting_route_retry = nil
+  record.command_kind = "move"
   record.command_tick = game.tick
+  reset_route_progress(record)
   update_route_progress(record, target_record, target_type, target_id, next_state)
   record.next_update_tick = game.tick + constants.ticks.command_check_interval
   return true
 end
 
+local function retry_next_destination_candidate(record, target_record, target_type, target_id, route_state, reason)
+  if target_type ~= "nest" then return false end
+  if not record.destination_candidate_name then return false end
+
+  local failed_candidate_names = ensure_destination_candidate_scope(record, target_type, target_id, route_state)
+  local previous_name = record.destination_candidate_name
+  failed_candidate_names[previous_name] = reason or true
+  record.destination_candidate_fail_reason = reason
+  debug_log_destination_candidate_failed(record, reason)
+
+  local retried = issue_command(record, target_record, target_type, target_id, route_state)
+  if retried then
+    debug_log(
+      "destination_candidate_retry"
+        .. " carrier_id=" .. tostring(record.id)
+        .. " unit_number=" .. tostring(record.unit_number or "-")
+        .. " target=" .. tostring(target_type or "-") .. "#" .. tostring(target_id or "-")
+        .. " previous_candidate=" .. tostring(previous_name)
+        .. " reason=" .. tostring(reason or "-")
+        .. " selected_index=" .. tostring(record.destination_candidate_index or "-")
+        .. " selected_name=" .. tostring(record.destination_candidate_name or "-")
+        .. " selected_position=" .. position_text(record.destination_position)
+    )
+    return true
+  end
+
+  debug_log(
+    "destination_candidate_retry_exhausted"
+      .. " carrier_id=" .. tostring(record.id)
+      .. " unit_number=" .. tostring(record.unit_number or "-")
+      .. " target=" .. tostring(target_type or "-") .. "#" .. tostring(target_id or "-")
+      .. " previous_candidate=" .. tostring(previous_name)
+      .. " reason=" .. tostring(reason or "-")
+      .. " candidates=[" .. tostring(record.destination_candidate_summary or "-") .. "]"
+  )
+  return false
+end
+
 local update_record
+
+local function is_test_command_result(result)
+  return type(result) == "string" and string.sub(result, 1, 5) == "test_"
+end
+
+local function finish_test_move(record, result)
+  local resume_tick = record.test_move_previous_next_update_tick
+  if not resume_tick or resume_tick <= game.tick then
+    resume_tick = game.tick + constants.ticks.command_check_interval
+  end
+  record.awaiting_route_retry = record.test_move_previous_awaiting_route_retry or nil
+  record.test_move_previous_awaiting_route_retry = nil
+  record.test_move_previous_next_update_tick = nil
+  record.command_kind = nil
+  record.command_result = result
+  record.next_update_tick = resume_tick
+end
+
+function carriers.test_move(carrier_id, position)
+  local data = state.get()
+  local id = tonumber(carrier_id)
+  local record = id and data.carriers[id] or nil
+  if not record then return false, "not_found" end
+  if not valid(record.entity) or not record.entity.commandable then
+    return false, "invalid"
+  end
+
+  local command_position = copy_position(position)
+  local ok, err = pcall(function()
+    record.entity.commandable.set_command{
+      type = defines.command.go_to_location,
+      destination = command_position,
+      radius = constants.command.radius,
+      distraction = defines.distraction.none
+    }
+  end)
+  if not ok then
+    debug_log(
+      "test_move_failed"
+        .. " carrier_id=" .. tostring(id)
+        .. " unit_number=" .. tostring(record.unit_number or "-")
+        .. " position=" .. position_text(command_position)
+        .. " error=" .. tostring(err)
+    )
+    return false, "command_failed", err
+  end
+
+  record.test_move_previous_awaiting_route_retry = record.awaiting_route_retry or nil
+  record.test_move_previous_next_update_tick = record.next_update_tick
+  record.command_kind = "test_move"
+  record.command_tick = game.tick
+  record.command_position = copy_position(command_position)
+  record.command_passed_position = copy_position(command_position)
+  record.command_target_position = nil
+  record.destination_position = nil
+  record.destination_position_failed = nil
+  record.command_failed = nil
+  record.command_result = nil
+  record.test_move_position = copy_position(command_position)
+  record.test_move_tick = game.tick
+  record.test_move_result = nil
+  record.next_update_tick = game.tick + constants.ticks.command_check_interval
+  enqueue(data, id)
+
+  debug_log(
+    "test_move_issued"
+      .. " carrier_id=" .. tostring(id)
+      .. " unit_number=" .. tostring(record.unit_number or "-")
+      .. " state=" .. tostring(record.state or "-")
+      .. " position=" .. position_text(command_position)
+  )
+  return true
+end
 
 local function set_idle(record, delay)
   clear_job(record, "complete")
@@ -749,7 +1304,13 @@ local function set_idle(record, delay)
   record.command_target_type = nil
   record.command_target_id = nil
   record.command_position = nil
+  clear_destination_debug(record)
+  clear_destination_candidate_attempts(record)
   record.command_failed = nil
+  record.command_kind = nil
+  record.command_tick = nil
+  record.command_result = nil
+  record.awaiting_route_retry = nil
   record.next_update_tick = game.tick + (delay or constants.ticks.idle_delay)
 end
 
@@ -763,7 +1324,13 @@ local function return_home(record)
   record.command_target_type = nil
   record.command_target_id = nil
   record.command_position = nil
+  clear_destination_debug(record)
+  clear_destination_candidate_attempts(record)
   record.command_failed = nil
+  record.command_kind = nil
+  record.command_tick = nil
+  record.command_result = nil
+  record.awaiting_route_retry = nil
   if not depots.is_valid(home) then
     carriers.remove(record.id, {spill_cargo = true, return_carrier_item = true, destroy_entity = true})
     return
@@ -788,7 +1355,13 @@ local function wait_for_destination_space(record)
   record.command_target_type = nil
   record.command_target_id = nil
   record.command_position = nil
+  clear_destination_debug(record)
+  clear_destination_candidate_attempts(record)
   record.command_failed = nil
+  record.command_kind = nil
+  record.command_tick = nil
+  record.command_result = nil
+  record.awaiting_route_retry = nil
   record.next_update_tick = game.tick + destination_space_delay(record)
 end
 
@@ -796,10 +1369,13 @@ local function clear_command_tracking(record)
   record.command_target_type = nil
   record.command_target_id = nil
   record.command_position = nil
+  clear_destination_debug(record)
+  clear_destination_candidate_attempts(record)
   record.command_failed = nil
   record.command_tick = nil
   record.command_result = nil
   record.awaiting_route_retry = nil
+  record.command_kind = nil
   reset_route_progress(record)
 end
 
@@ -874,6 +1450,16 @@ update_record = function(record)
   food.ensure_carrier_fields(record)
   ensure_failure_fields(record)
 
+  if record.command_kind == "test_move" then
+    local commandable = record.entity.commandable
+    if commandable and commandable.has_command then
+      record.next_update_tick = game.tick + constants.ticks.command_check_interval
+      return
+    end
+    finish_test_move(record, record.command_result or "test_ended_without_event")
+    return
+  end
+
   if is_moving_state(record) then
     local target_record, target_type, target_id = target_for_state(record)
     local commandable = record.entity.commandable
@@ -886,7 +1472,8 @@ update_record = function(record)
       update_route_progress(record, target_record, target_type, target_id, route_state)
     end
 
-    if (record.command_position
+    if (record.command_kind == "move"
+        and record.command_position
         and is_near_position(record, record.command_position, constants.command.interaction_radius))
       or is_near_record(record, target_record) then
       if complete_command_success(record) then
@@ -903,6 +1490,9 @@ update_record = function(record)
     end
 
     if record.awaiting_route_retry then
+      if record.next_update_tick and game.tick < record.next_update_tick then
+        return
+      end
       if not issue_command(record, target_record, target_type, target_id, route_state) then
         if not record_route_failure(record, target_record, target_type, target_id, route_state) then
           schedule_route_retry(record)
@@ -912,6 +1502,9 @@ update_record = function(record)
     end
 
     if record.command_failed or record.command_result == "fail" then
+      if retry_next_destination_candidate(record, target_record, target_type, target_id, route_state, record.command_result or "fail") then
+        return
+      end
       if not record_route_failure(record, target_record, target_type, target_id, route_state) then
         schedule_route_retry(record)
       end
@@ -919,7 +1512,13 @@ update_record = function(record)
     end
 
     if command_ended then
-      if record.command_result == "deleted" or record.command_result == "other" then
+      if is_test_command_result(record.command_result) then
+        if not issue_command(record, target_record, target_type, target_id, route_state) then
+          schedule_route_retry(record)
+        end
+      elseif record.command_result == "deleted"
+        or record.command_result == "other"
+        or record.command_result == "stale" then
         schedule_route_retry(record)
       elseif not record_route_failure(record, target_record, target_type, target_id, route_state) then
         schedule_route_retry(record)
@@ -927,12 +1526,19 @@ update_record = function(record)
       return
     end
 
+    if route_has_stalled(record) then
+      debug_log_route_stall(record, target_record, commandable)
+      if retry_next_destination_candidate(record, target_record, target_type, target_id, route_state, "stall") then
+        return
+      end
+      if not record_route_failure(record, target_record, target_type, target_id, route_state) then
+        schedule_route_retry(record)
+      end
+      return
+    end
+
     if command_timed_out then
-      if route_has_stalled(record) then
-        if not record_route_failure(record, target_record, target_type, target_id, route_state) then
-          schedule_route_retry(record)
-        end
-      elseif not issue_command(record, target_record, target_type, target_id, route_state) then
+      if not issue_command(record, target_record, target_type, target_id, route_state) then
         if not record_route_failure(record, target_record, target_type, target_id, route_state) then
           schedule_route_retry(record)
         end
@@ -1085,7 +1691,8 @@ local function should_update(record)
   if not is_moving_state(record) then return false end
 
   local target_record = target_for_state(record)
-  return (record.command_position
+  return (record.command_kind == "move"
+      and record.command_position
       and is_near_position(record, record.command_position, constants.command.interaction_radius))
     or is_near_record(record, target_record)
 end
@@ -1172,13 +1779,52 @@ function carriers.on_dispatch_failure(reason, record, context)
   return record_starvation_failure(record, context)
 end
 
+local function command_event_arrived(record)
+  if not is_moving_state(record) then return false end
+  local target_record = target_for_state(record)
+  return (record.command_kind == "move"
+      and record.command_position
+      and is_near_position(record, record.command_position, constants.command.interaction_radius))
+    or is_near_record(record, target_record)
+end
+
 function carriers.on_ai_command_completed(event)
   local data = state.get()
   local id = data.carrier_by_unit_number[event.unit_number]
   local record = id and data.carriers[id] or nil
   if not record then return end
 
+  local result_name = behavior_result_name(event.result)
+  debug_log_ai_command_completed(record, event, result_name)
   record.next_update_tick = game.tick
+
+  if record.command_kind == "test_move" then
+    if event.result == defines.behavior_result.deleted
+      and record.command_tick
+      and event.tick <= record.command_tick
+      and record.entity.commandable
+      and record.entity.commandable.has_command then
+      record.test_move_stale_deleted_tick = event.tick
+      record.next_update_tick = game.tick + constants.ticks.command_check_interval
+      return
+    end
+    record.command_failed = nil
+    finish_test_move(record, "test_" .. result_name)
+    record.test_move_result = result_name
+    return
+  end
+
+  if record.command_kind == "move"
+    and event.result ~= defines.behavior_result.fail
+    and record.command_tick
+    and event.tick <= record.command_tick
+    and not command_event_arrived(record) then
+    record.command_failed = nil
+    record.command_result = "stale"
+    update_record(record)
+    return
+  end
+
   if event.result == defines.behavior_result.success then
     record.command_failed = nil
     record.command_result = "success"
