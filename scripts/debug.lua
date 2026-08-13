@@ -214,6 +214,7 @@ function debug.print_status(command)
     if depots.is_valid(record)
       and (not player or record.surface_index == player.surface_index) then
       local carrier_count = depots.assigned_carrier_count(record)
+      local hatching_status = depots.hatching_status(record)
       print({
         "debug.biter-logistics-depot",
         id,
@@ -221,6 +222,8 @@ function debug.print_status(command)
         depots.count_carrier_items(record),
         carrier_count,
         depots.carrier_capacity(record),
+        hatching_status.hatching_count,
+        hatching_status.ready_count,
         depots.available_food_energy(record)
       })
     end

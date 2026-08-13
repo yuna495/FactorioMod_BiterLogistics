@@ -76,8 +76,13 @@ local function add_depot_status(frame, record)
   local carrier_count = depots.assigned_carrier_count(record)
   local carrier_capacity = depots.carrier_capacity(record)
   local active_count = depots.active_carrier_count(record)
+  local hatching_status = depots.hatching_status(record)
 
   frame.add{type = "label", caption = {"gui.biter-logistics-status-carriers", carrier_count, carrier_capacity, active_count}}
+  frame.add{type = "label", caption = {"gui.biter-logistics-hatching-count", hatching_status.hatching_count}}
+  frame.add{type = "label", caption = {"gui.biter-logistics-hatching-progress"}}
+  frame.add{type = "progressbar", value = hatching_status.progress}
+  frame.add{type = "label", caption = {"gui.biter-logistics-hatching-ready", hatching_status.ready_count}}
   frame.add{type = "label", caption = {"gui.biter-logistics-depot-food-slots", constants.depot_slots.food_count}}
   local food_flow = frame.add{type = "flow", direction = "horizontal"}
   food_flow.add{type = "label", caption = {"gui.biter-logistics-accepted-food"}}
@@ -89,7 +94,7 @@ local function add_depot_status(frame, record)
       tooltip = {"gui.biter-logistics-food-item-tooltip", "[item=" .. entry.name .. "]", entry.value}
     }
   end
-  if carrier_count >= carrier_capacity and depots.count_carrier_items(record) > 0 then
+  if depots.carrier_capacity_reached(record) and depots.count_carrier_items(record) > 0 then
     frame.add{type = "label", caption = {"gui.biter-logistics-status-carrier-capacity-reached"}}
   end
   frame.add{type = "label", caption = {"gui.biter-logistics-food-energy", depots.available_food_energy(record)}}
@@ -208,7 +213,24 @@ function gui.open_depot(player, record)
   }
 
   add_name(frame, record.display_name)
-  add_depot_status(frame, record)
+  local status_flow = frame.add{
+    type = "flow",
+    name = constants.gui.depot_status_flow,
+    direction = "vertical"
+  }
+  add_depot_status(status_flow, record)
+end
+
+local function refresh_depot_status(player, record)
+  local frame = root(player)
+  local status_flow = frame and frame[constants.gui.depot_status_flow]
+  if not valid(status_flow) then return false end
+
+  for _, child in pairs(status_flow.children) do
+    child.destroy()
+  end
+  add_depot_status(status_flow, record)
+  return true
 end
 
 function gui.refresh(player)
@@ -227,6 +249,22 @@ function gui.refresh(player)
       gui.open_depot(player, record)
     else
       close(player)
+    end
+  end
+end
+
+function gui.refresh_open_depots()
+  for _, player in pairs(game.connected_players) do
+    local pstate = state.get().players[player.index]
+    if pstate and pstate.open_type == "depot" then
+      local record = pstate.open_depot_id and depots.get(pstate.open_depot_id)
+      if record and depots.is_valid(record) then
+        if not refresh_depot_status(player, record) then
+          gui.open_depot(player, record)
+        end
+      else
+        close(player)
+      end
     end
   end
 end

@@ -173,22 +173,42 @@ end)
 
 script.on_event(defines.events.on_player_main_inventory_changed, egg_research.on_player_main_inventory_changed)
 
-script.on_nth_tick(constants.ticks.nest_update_interval, function()
+local nth_tick_handlers = {}
+
+local function register_nth_tick(interval, handler)
+  nth_tick_handlers[interval] = nth_tick_handlers[interval] or {}
+  nth_tick_handlers[interval][#nth_tick_handlers[interval] + 1] = handler
+end
+
+register_nth_tick(constants.ticks.nest_update_interval, function()
   nests.process_batch(logistics.enqueue_request)
   depots.process_batch(carriers.spawn_from_depot, logistics.enqueue_all_requests)
   logistics.process_batch(carriers.assign_job, carriers.on_dispatch_failure)
 end)
 
-script.on_nth_tick(constants.ticks.carrier_update_interval, function()
+register_nth_tick(constants.ticks.carrier_update_interval, function()
   carriers.process_batch()
 end)
 
-script.on_nth_tick(constants.ticks.range_visual_update_interval, function()
+register_nth_tick(constants.ticks.range_visual_update_interval, function()
   range_visuals.refresh_all_players()
 end)
 
-script.on_nth_tick(constants.ticks.diagnostic_alert_update_interval, function()
+register_nth_tick(constants.ticks.gui_update_interval, function()
+  gui.refresh_open_depots()
+end)
+
+register_nth_tick(constants.ticks.diagnostic_alert_update_interval, function()
   diagnostics.process_alerts()
 end)
+
+for interval, handlers in pairs(nth_tick_handlers) do
+  local registered_handlers = handlers
+  script.on_nth_tick(interval, function(event)
+    for _, handler in ipairs(registered_handlers) do
+      handler(event)
+    end
+  end)
+end
 
 debug.register_commands()

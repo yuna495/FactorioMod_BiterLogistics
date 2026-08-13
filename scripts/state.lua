@@ -1,3 +1,5 @@
+local constants = require("constants")
+
 local state = {}
 
 local function ensure_table(parent, key)
@@ -136,6 +138,14 @@ local function migrate(data)
   if data.schema_version < 14 then
     data.schema_version = 14
   end
+
+  if data.schema_version < 15 then
+    for _, depot in pairs(data.depots or {}) do
+      depot.hatching = depot.hatching or {}
+      depot.inventory_layout_version = depot.inventory_layout_version or 1
+    end
+    data.schema_version = 15
+  end
 end
 
 function state.get()
@@ -159,6 +169,9 @@ function state.get()
   ensure_table(data, "depots_by_force_surface")
   ensure_table(data, "depot_queue")
   ensure_table(data, "depot_queued")
+  for _, depot in pairs(data.depots) do
+    depot.hatching = depot.hatching or {}
+  end
 
   ensure_table(data, "carriers")
   ensure_table(data, "carrier_by_unit_number")
@@ -186,6 +199,11 @@ function state.get()
   data.request_cursor = data.request_cursor or 0
 
   migrate(data)
+
+  for _, depot in pairs(data.depots) do
+    depot.hatching = depot.hatching or {}
+    depot.inventory_layout_version = depot.inventory_layout_version or constants.depot_slots.layout_version
+  end
 
   return data
 end

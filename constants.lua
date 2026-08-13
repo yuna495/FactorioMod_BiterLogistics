@@ -37,9 +37,15 @@ constants.nest_slots = {
 
 constants.depot_slots = {
   carrier = 1,
-  food_first = 2,
+  egg = 2,
+  food_first = 3,
   food_count = 10,
-  total = 11
+  total = 12,
+  layout_version = 2
+}
+
+constants.hatching = {
+  duration_ticks = 60 * 5
 }
 
 constants.research = {
@@ -133,6 +139,7 @@ constants.ticks = {
   command_timeout = 60 * 60,
   debug_log_window = 60 * 10,
   range_visual_update_interval = 60,
+  gui_update_interval = 60,
   diagnostic_message_cooldown = 60 * 5,
   diagnostic_alert_update_interval = 60,
   diagnostic_alert_stale_ticks = 60 * 5
@@ -201,7 +208,8 @@ constants.gui = {
   mode_dropdown = "biter_logistics_mode",
   request_type_dropdown = "biter_logistics_request_type",
   request_item_button = "biter_logistics_request_item",
-  request_threshold_radio_prefix = "biter_logistics_threshold_"
+  request_threshold_radio_prefix = "biter_logistics_threshold_",
+  depot_status_flow = "biter_logistics_depot_status"
 }
 
 constants.commands = {
