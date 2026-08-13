@@ -37,7 +37,8 @@ local technology_icon_size = 128
 local technology_icon_path = "__BiterLogistics__/data/technologies/"
 
 local technology_icons = {
-  logistics = technology_icon_path .. "biter-logistics.png",
+  logistics = technology_icon_path .. "biter-logistics-depot.png",
+  logistics_nest = technology_icon_path .. "biter-logistics.png",
   biomass_cultivation = technology_icon_path .. "biter-logistics-biomass-cultivation.png",
   herbivorous_biters = technology_icon_path .. "biter-logistics-herbivorous-biters.png",
   circuit_control = technology_icon_path .. "biter-logistics-circuit-control.png",
@@ -102,10 +103,6 @@ local logistics_tech = {
   effects = {
     {
       type = "unlock-recipe",
-      recipe = constants.nest_item
-    },
-    {
-      type = "unlock-recipe",
       recipe = constants.depot_item
     },
     {
@@ -113,13 +110,32 @@ local logistics_tech = {
       recipe = constants.carrier_item
     }
   },
-  prerequisites = {"automated-rail-transportation"},
+  research_trigger = {
+    type = "scripted",
+    icon = "__space-age__/graphics/icons/biter-egg.png",
+    icon_size = 64,
+    trigger_description = {"technology-trigger.biter-logistics-obtain-biter-egg"}
+  },
+  order = "c-k-a[biter-logistics]"
+}
+
+local logistics_nest_tech = {
+  type = "technology",
+  name = constants.research.logistics_nest,
+  icons = single_icon(technology_icons.logistics_nest),
+  effects = {
+    {
+      type = "unlock-recipe",
+      recipe = constants.nest_item
+    }
+  },
+  prerequisites = {constants.research.base},
   unit = {
     count = 200,
     ingredients = science.red_green,
     time = 30
   },
-  order = "c-k-a[biter-logistics]"
+  order = "c-k-a-a[biter-logistics-logistics-nest]"
 }
 
 local capacity_icons = single_icon(technology_icons.carrier_capacity)
@@ -131,7 +147,7 @@ local circuit_control_icons = single_icon(technology_icons.circuit_control)
 local depot_range_icons = single_icon(technology_icons.depot_range)
 local depot_capacity_icons = single_icon(technology_icons.depot_capacity)
 
-local technologies = {logistics_tech}
+local technologies = {logistics_tech, logistics_nest_tech}
 
 technologies[#technologies + 1] = {
   type = "technology",
@@ -143,7 +159,7 @@ technologies[#technologies + 1] = {
       recipe = constants.biomass_item
     }
   },
-  prerequisites = {constants.research.base, "chemical-science-pack"},
+  prerequisites = {constants.research.logistics_nest, "chemical-science-pack"},
   unit = {
     count = 300,
     ingredients = science.chemical,
@@ -159,7 +175,7 @@ technologies[#technologies + 1] = {
   effects = {
     nothing_effect(effect_descriptions.carrier_food, technology_icons.herbivorous_biters)
   },
-  prerequisites = {constants.research.base, "chemical-science-pack"},
+  prerequisites = {constants.research.logistics_nest, "chemical-science-pack"},
   unit = {
     count = 250,
     ingredients = science.chemical,
@@ -179,7 +195,7 @@ technologies[#technologies + 1] = {
     },
     nothing_effect(effect_descriptions.circuit_control, technology_icons.circuit_control)
   },
-  prerequisites = {constants.research.base, "chemical-science-pack"},
+  prerequisites = {constants.research.logistics_nest, "chemical-science-pack"},
   unit = {
     count = 300,
     ingredients = science.chemical,
@@ -189,7 +205,7 @@ technologies[#technologies + 1] = {
 }
 
 for level, spec in ipairs({
-  {count = 150, time = 30, ingredients = science.red_green, prerequisites = {constants.research.base}},
+  {count = 150, time = 30, ingredients = science.red_green, prerequisites = {constants.research.logistics_nest}},
   {count = 300, time = 30, ingredients = science.chemical, prerequisites = {constants.research.carrier_capacity_prefix .. "1", "chemical-science-pack"}},
   {count = 600, time = 30, ingredients = science.production, prerequisites = {constants.research.carrier_capacity_prefix .. "2", "production-science-pack"}},
   {count = 1000, time = 60, ingredients = science.utility, prerequisites = {constants.research.carrier_capacity_prefix .. "3", "utility-science-pack"}}
@@ -208,7 +224,7 @@ for level, spec in ipairs({
 end
 
 for level, spec in ipairs({
-  {count = 100, time = 30, ingredients = science.red_green, prerequisites = {constants.research.base}},
+  {count = 100, time = 30, ingredients = science.red_green, prerequisites = {constants.research.logistics_nest}},
   {count = 250, time = 30, ingredients = science.chemical, prerequisites = {constants.research.carrier_speed_prefix .. "1", "chemical-science-pack"}},
   {count = 500, time = 30, ingredients = science.production, prerequisites = {constants.research.carrier_speed_prefix .. "2", "production-science-pack"}}
 }) do
@@ -244,7 +260,7 @@ technologies[#technologies + 1] = {
 }
 
 for level, spec in ipairs({
-  {count = 150, time = 30, slots = 20, ingredients = science.red_green, prerequisites = {constants.research.base}},
+  {count = 150, time = 30, slots = 20, ingredients = science.red_green, prerequisites = {constants.research.logistics_nest}},
   {count = 300, time = 30, slots = 30, ingredients = science.chemical, prerequisites = {constants.research.nest_capacity_prefix .. "1", "chemical-science-pack"}},
   {count = 600, time = 30, slots = 40, ingredients = science.production, prerequisites = {constants.research.nest_capacity_prefix .. "2", "production-science-pack"}}
 }) do
@@ -262,7 +278,7 @@ for level, spec in ipairs({
 end
 
 for level, spec in ipairs({
-  {count = 150, time = 30, radius = 40, ingredients = science.red_green, prerequisites = {constants.research.base}},
+  {count = 150, time = 30, radius = 40, ingredients = science.red_green, prerequisites = {constants.research.logistics_nest}},
   {count = 300, time = 30, radius = 48, ingredients = science.chemical, prerequisites = {constants.research.depot_range_prefix .. "1", "chemical-science-pack"}},
   {count = 600, time = 30, radius = 56, ingredients = science.production, prerequisites = {constants.research.depot_range_prefix .. "2", "production-science-pack"}},
   {count = 1000, time = 60, radius = 64, ingredients = science.utility, prerequisites = {constants.research.depot_range_prefix .. "3", "utility-science-pack"}},
@@ -282,7 +298,7 @@ for level, spec in ipairs({
 end
 
 for level, spec in ipairs({
-  {count = 150, time = 30, capacity = 2, ingredients = science.red_green, prerequisites = {constants.research.base}},
+  {count = 150, time = 30, capacity = 2, ingredients = science.red_green, prerequisites = {constants.research.logistics_nest}},
   {count = 300, time = 30, capacity = 3, ingredients = science.chemical, prerequisites = {constants.research.depot_capacity_prefix .. "1", "chemical-science-pack"}},
   {count = 600, time = 30, capacity = 4, ingredients = science.production, prerequisites = {constants.research.depot_capacity_prefix .. "2", "production-science-pack"}},
   {count = 1000, time = 60, capacity = 5, ingredients = science.utility, prerequisites = {constants.research.depot_capacity_prefix .. "3", "utility-science-pack"}}

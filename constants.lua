@@ -44,6 +44,7 @@ constants.depot_slots = {
 
 constants.research = {
   base = "biter-logistics",
+  logistics_nest = "biter-logistics-logistics-nest",
   biomass_cultivation = "biter-logistics-biomass-cultivation",
   herbivorous_biters = "biter-logistics-herbivorous-biters",
   circuit_control = "biter-logistics-circuit-control",

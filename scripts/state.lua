@@ -132,6 +132,10 @@ local function migrate(data)
     data.spawner_egg_drop.first_drop_completed_by_force = data.spawner_egg_drop.first_drop_completed_by_force or {}
     data.schema_version = 13
   end
+
+  if data.schema_version < 14 then
+    data.schema_version = 14
+  end
 end
 
 function state.get()

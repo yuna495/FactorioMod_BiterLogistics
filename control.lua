@@ -12,6 +12,7 @@ local logistics = require("scripts.logistics")
 local range_visuals = require("scripts.range_visuals")
 local diagnostics = require("scripts.diagnostics")
 local spawner_egg_loot = require("scripts.spawner_egg_loot")
+local egg_research = require("scripts.egg_research")
 
 local function event_entity(event)
   return event.created_entity or event.entity or event.destination
@@ -37,8 +38,15 @@ local function initialise()
   range_visuals.refresh_all_players()
 end
 
-script.on_init(initialise)
-script.on_configuration_changed(initialise)
+script.on_init(function()
+  initialise()
+end)
+
+script.on_configuration_changed(function()
+  egg_research.migrate_legacy_research()
+  egg_research.check_existing_players()
+  initialise()
+end)
 script.on_load(function() end)
 
 local function on_built(event)
@@ -154,12 +162,16 @@ script.on_event(defines.events.on_player_changed_surface, function(event)
 end)
 
 script.on_event(defines.events.on_player_changed_force, function(event)
+  local player = game.get_player(event.player_index)
+  egg_research.check_player(player)
   range_visuals.refresh_player_index(event.player_index)
 end)
 
 script.on_event(defines.events.on_player_left_game, function(event)
   range_visuals.destroy_player(event.player_index)
 end)
+
+script.on_event(defines.events.on_player_main_inventory_changed, egg_research.on_player_main_inventory_changed)
 
 script.on_nth_tick(constants.ticks.nest_update_interval, function()
   nests.process_batch(logistics.enqueue_request)
