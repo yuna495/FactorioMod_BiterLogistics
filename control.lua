@@ -11,7 +11,7 @@ local jobs = require("scripts.jobs")
 local logistics = require("scripts.logistics")
 local range_visuals = require("scripts.range_visuals")
 local diagnostics = require("scripts.diagnostics")
-local biomass_loot = require("scripts.biomass_loot")
+local spawner_egg_loot = require("scripts.spawner_egg_loot")
 
 local function event_entity(event)
   return event.created_entity or event.entity or event.destination
@@ -63,7 +63,7 @@ local function on_removed(event)
   local entity = event_entity(event)
   local refresh = is_visual_entity(entity)
   if event.name == defines.events.on_entity_died then
-    biomass_loot.on_entity_died(event)
+    spawner_egg_loot.on_entity_died(event)
     carriers.on_entity_died(event)
   end
   cleanup.on_removed(event)

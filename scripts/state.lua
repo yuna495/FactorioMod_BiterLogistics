@@ -126,6 +126,12 @@ local function migrate(data)
     end
     data.schema_version = 12
   end
+
+  if data.schema_version < 13 then
+    data.spawner_egg_drop = data.spawner_egg_drop or {}
+    data.spawner_egg_drop.first_drop_completed_by_force = data.spawner_egg_drop.first_drop_completed_by_force or {}
+    data.schema_version = 13
+  end
 end
 
 function state.get()
@@ -167,6 +173,8 @@ function state.get()
   local diagnostics = ensure_table(data, "diagnostics")
   ensure_table(diagnostics, "last_messages")
   ensure_table(diagnostics, "active_alerts")
+  local spawner_egg_drop = ensure_table(data, "spawner_egg_drop")
+  ensure_table(spawner_egg_drop, "first_drop_completed_by_force")
 
   data.nest_cursor = data.nest_cursor or 0
   data.depot_cursor = data.depot_cursor or 0

@@ -137,15 +137,20 @@ constants.ticks = {
   diagnostic_alert_stale_ticks = 60 * 5
 }
 
-constants.biomass_loot = {
+constants.spawner_egg_loot = {
   source_spawners = {
     ["biter-spawner"] = true,
     ["spitter-spawner"] = true
   },
-  count_min = 2,
-  count_max = 4,
+  egg_item = "biter-egg",
+  drop_chance = 0.60,
   drop_radius = 3,
-  spill_radius = 0.25
+  spill_radius = 0.25,
+  flying_text_color = {r = 0.95, g = 0.78, b = 0.45},
+  ignored_forces = {
+    enemy = true,
+    neutral = true
+  }
 }
 
 constants.command = {
